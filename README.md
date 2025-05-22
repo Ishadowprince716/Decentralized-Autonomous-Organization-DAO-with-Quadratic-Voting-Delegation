@@ -1,8 +1,10 @@
-## Things you need to do:
+# Clone the repository
+git clone <repository-url>
+cd decentralized-autonomous-organization-dao-with-quadratic-voting-delegation
 
-- Project.sol file - Rename this file and add the solidity code inside it.
-- deploy.js file - Add the deploy.js (javascript) code inside it.
-- .env.example - Add the Private Key of your MetaMask Wallet's account.
-- Readme.md file - Add the Readme content inside this file.
-- package.json file – Replace the `"name"` property value from `"Project-Title"` to your actual project title. <br/>
-*Example:* `"name": "crowdfunding-smartcontract"`
+# Install dependencies
+npm install
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your private key
