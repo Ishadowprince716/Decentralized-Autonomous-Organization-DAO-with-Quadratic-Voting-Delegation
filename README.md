@@ -149,6 +149,11 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 For questions and support, please open an issue in the GitHub repository or join our community Discord server.
 
+## Contract Details
+0xFFBf051CaD6374c7d2A7C1D0Fff510daD95874bC
+![image](https://github.com/user-attachments/assets/578faf59-43c7-4a7b-80ac-dfda6d2d717d)
+![Screenshot 2025-05-23 153741](https://github.com/user-attachments/assets/2bb9880e-00e2-4a69-96d2-3ae11c76ad08)
+
 ---
 
 *Built with ❤️ for the decentralized future*
