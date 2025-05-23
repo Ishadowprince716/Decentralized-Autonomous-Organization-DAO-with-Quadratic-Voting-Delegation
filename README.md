@@ -138,7 +138,7 @@ The DAO contract includes three core functions:
 ## Contributing![Screenshot 2025-05-23 150353](https://github.com/user-attachments/assets/0175f428-b12a-4a33-99e5-3d4afc886346)
 
 
-We welcome contributions from the community! Please read our contributing guidelines and submit pull requests for any improvements.![Screenshot 2025-05-23 150531](https://github.com/user-attachments/assets/dede4a6d-d134-49b4-af58-486d5731c2dd)
+We welcome contributions from the community! Please read our contributing guidelines and submit pull requests for any improvements.
 
 ## Contract Details
 0xFFBf051CaD6374c7d2A7C1D0Fff510daD95874bC
