@@ -140,19 +140,10 @@ The DAO contract includes three core functions:
 
 We welcome contributions from the community! Please read our contributing guidelines and submit pull requests for any improvements.![Screenshot 2025-05-23 150531](https://github.com/user-attachments/assets/dede4a6d-d134-49b4-af58-486d5731c2dd)
 
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Support
-
-For questions and support, please open an issue in the GitHub repository or join our community Discord server.
-
 ## Contract Details
 0xFFBf051CaD6374c7d2A7C1D0Fff510daD95874bC
-![image](https://github.com/user-attachments/assets/578faf59-43c7-4a7b-80ac-dfda6d2d717d)
-![Screenshot 2025-05-23 153741](https://github.com/user-attachments/assets/2bb9880e-00e2-4a69-96d2-3ae11c76ad08)
+![image](https://github.com/user-attachments/assets/98897f11-2959-40bd-a8ba-29998b6d4d1a)
+
 
 ---
 
