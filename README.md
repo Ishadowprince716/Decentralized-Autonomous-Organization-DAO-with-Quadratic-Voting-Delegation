@@ -135,9 +135,6 @@ The DAO contract includes three core functions:
 - **Chain ID**: 1115
 - **Explorer**: https://scan.test2.btcs.network
 
-## Contributing![Screenshot 2025-05-23 150353](https://github.com/user-attachments/assets/0175f428-b12a-4a33-99e5-3d4afc886346)
-
-
 We welcome contributions from the community! Please read our contributing guidelines and submit pull requests for any improvements.
 
 ## Contract Details
