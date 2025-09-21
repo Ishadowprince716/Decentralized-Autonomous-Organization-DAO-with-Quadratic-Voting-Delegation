@@ -9,22 +9,18 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
  * @title Advanced Decentralized Autonomous Organization (DAO)
  * @author Your Name Here
  * @notice An enhanced DAO with proposal deposits, treasury management, quadratic voting,
- * delegation, proposal lifecycle states, and time-locked voting power.
+ * delegation, proposal lifecycle states, and time-locked execution.
  */
 contract AdvancedDAO is Ownable, ReentrancyGuard {
     using Math for uint256;
 
     // --- Enums ---
-    /**
-     * @dev NEW: Defines the possible states of a proposal.
-     */
-    enum ProposalState { Pending, Active, Canceled, Defeated, Succeeded, Executed }
+    enum ProposalState { Pending, Active, Canceled, Defeated, Succeeded, Queued, Executed }
 
     // --- Structs ---
     struct Proposal {
         uint256 id;
-        string title;
-        string description;
+        string descriptionHash; // REFACTORED: Use a hash to save gas
         address proposer;
         payable recipient;
         uint256 amount;
@@ -32,10 +28,9 @@ contract AdvancedDAO is Ownable, ReentrancyGuard {
         uint256 againstVotes;
         uint256 startTime;
         uint256 endTime;
-        bool executed; // Kept for simplicity, but state is now primary
-        ProposalState state; // NEW: To track the proposal's lifecycle
+        uint256 executableAt; // NEW: Timestamp for when a queued proposal can be executed
+        ProposalState state;
         mapping(address => bool) hasVoted;
-        mapping(address => uint256) voterCredits;
     }
 
     struct Member {
@@ -46,10 +41,38 @@ contract AdvancedDAO is Ownable, ReentrancyGuard {
         uint256 joinedAt;
     }
 
+    // --- Custom Errors ---
+    // NEW: Gas-efficient custom errors
+    error AlreadyMember();
+    error NotAMember();
+    error InsufficientFee();
+    error ProposalNotFound();
+    error InvalidProposalState(uint256 proposalId, ProposalState requiredState);
+    error VotingPeriodActive();
+    error VotingPeriodNotEnded();
+    error AlreadyVoted();
+    error ZeroCredits();
+    error VestingPeriodNotOver();
+    error InsufficientVotingPower(uint256 cost, uint256 available);
+    error NotProposer();
+    error InvalidDescriptionHash();
+    error InvalidRecipient();
+    error InsufficientTreasury();
+    error TimelockNotOver(uint256 executableAt);
+    error CannotDelegateToSelf();
+    error DelegateNotMember();
+    error AlreadyDelegated();
+    error NoActiveDelegation();
+    error InvalidThreshold();
+    error QuorumNotMet();
+    error ProposalFailed();
+
     // --- Mappings ---
     mapping(uint256 => Proposal) public proposals;
     mapping(address => Member) public members;
     mapping(address => address[]) public delegators;
+    // NEW: Mapping to store delegator indices for efficient removal
+    mapping(address => mapping(address => uint256)) private delegatorIndices;
 
     // --- State Variables ---
     uint256 public proposalCounter;
@@ -59,13 +82,14 @@ contract AdvancedDAO is Ownable, ReentrancyGuard {
     uint256 public constant VOTING_PERIOD = 7 days;
     uint256 public constant MIN_VOTING_POWER = 1;
     uint256 public constant MEMBERSHIP_FEE = 0.01 ether;
-    uint256 public constant VESTING_PERIOD = 2 days; // NEW: Waiting period for new members
+    uint256 public constant VESTING_PERIOD = 2 days;
+    uint256 public constant TIMELOCK_PERIOD = 2 days; // NEW: Timelock for execution
     uint256 public proposalDeposit = 0.1 ether;
     uint256 public quorumVotes = 10;
     uint256 public passingThresholdPercent = 51;
 
     // --- Events ---
-    event ProposalCreated(uint256 indexed proposalId, string title, address indexed proposer);
+    event ProposalCreated(uint256 indexed proposalId, string descriptionHash, address indexed proposer);
     event ProposalStateChanged(uint256 indexed proposalId, ProposalState newState);
     event VoteCast(uint256 indexed proposalId, address indexed voter, bool support, uint256 credits);
     event MemberAdded(address indexed member, uint256 votingPower);
@@ -73,19 +97,7 @@ contract AdvancedDAO is Ownable, ReentrancyGuard {
     event DelegationRevoked(address indexed delegator, address indexed delegate);
     event GovernanceParametersUpdated(uint256 newDeposit, uint256 newQuorum, uint256 newThreshold);
 
-    // --- Modifiers ---
-    modifier onlyMember() {
-        require(members[msg.sender].isMember, "Only DAO members can perform this action");
-        _;
-    }
-
-    modifier validProposal(uint256 _proposalId) {
-        require(_proposalId < proposalCounter, "Proposal does not exist");
-        _;
-    }
-
     constructor() Ownable(msg.sender) {
-        // Owner is the first member
         members[msg.sender] = Member({
             isMember: true,
             votingPower: 10,
@@ -99,8 +111,8 @@ contract AdvancedDAO is Ownable, ReentrancyGuard {
 
     // --- Membership Functions ---
     function joinDAO() external payable nonReentrant {
-        require(!members[msg.sender].isMember, "Already a DAO member");
-        require(msg.value >= MEMBERSHIP_FEE, "Insufficient membership fee");
+        if (members[msg.sender].isMember) revert AlreadyMember();
+        if (msg.value < MEMBERSHIP_FEE) revert InsufficientFee();
         uint256 votingPower = Math.sqrt(msg.value / MEMBERSHIP_FEE) + MIN_VOTING_POWER;
         members[msg.sender] = Member({
             isMember: true,
@@ -114,113 +126,92 @@ contract AdvancedDAO is Ownable, ReentrancyGuard {
     }
 
     // --- Proposal Functions ---
-    /**
-     * @dev Create a proposal with a deposit.
-     */
     function createProposal(
-        string memory _title,
-        string memory _description,
+        string memory _descriptionHash,
         payable _recipient,
         uint256 _amount
-    ) external payable onlyMember returns (uint256) {
-        require(bytes(_title).length > 0, "Title cannot be empty");
-        require(msg.value == proposalDeposit, "Incorrect proposal deposit amount");
+    ) external payable returns (uint256) {
+        if (!members[msg.sender].isMember) revert NotAMember();
+        if (bytes(_descriptionHash).length == 0) revert InvalidDescriptionHash();
+        if (msg.value != proposalDeposit) revert InsufficientFee();
         if (_amount > 0) {
-            require(_recipient != address(0), "Recipient cannot be zero for funding");
-            require(address(this).balance >= _amount + proposalDeposit, "Insufficient treasury for proposal");
+            if (_recipient == address(0)) revert InvalidRecipient();
+            if (address(this).balance < _amount + proposalDeposit) revert InsufficientTreasury();
         }
 
         uint256 proposalId = proposalCounter++;
         Proposal storage p = proposals[proposalId];
         p.id = proposalId;
-        p.title = _title;
-        p.description = _description;
+        p.descriptionHash = _descriptionHash;
         p.proposer = msg.sender;
         p.recipient = _recipient;
         p.amount = _amount;
         p.startTime = block.timestamp;
         p.endTime = block.timestamp + VOTING_PERIOD;
-        p.state = ProposalState.Active; // NEW: Set initial state
+        p.state = ProposalState.Active;
 
-        emit ProposalCreated(proposalId, _title, msg.sender);
+        emit ProposalCreated(proposalId, _descriptionHash, msg.sender);
         emit ProposalStateChanged(proposalId, ProposalState.Active);
         return proposalId;
     }
 
-    /**
-     * @dev NEW: Allows a proposer to cancel their own proposal before voting ends.
-     */
-    function cancelProposal(uint256 _proposalId) external validProposal(_proposalId) nonReentrant {
+    function cancelProposal(uint256 _proposalId) external nonReentrant {
+        if (_proposalId >= proposalCounter) revert ProposalNotFound();
         Proposal storage p = proposals[_proposalId];
-        require(p.proposer == msg.sender, "Only the proposer can cancel");
-        require(p.state == ProposalState.Active, "Proposal not in active state");
+        if (p.proposer != msg.sender) revert NotProposer();
+        if (p.state != ProposalState.Active) revert InvalidProposalState(_proposalId, ProposalState.Active);
 
         p.state = ProposalState.Canceled;
-        payable(p.proposer).transfer(proposalDeposit); // Refund deposit
+        // REFACTORED: Use .call for safer transfers
+        (bool sent, ) = p.proposer.call{value: proposalDeposit}("");
+        require(sent, "Failed to refund deposit");
 
         emit ProposalStateChanged(_proposalId, ProposalState.Canceled);
     }
 
-    /**
-     * @dev Cast a vote on a proposal using quadratic voting.
-     * @notice Voting power is subject to a vesting period.
-     */
-    function castQuadraticVote(uint256 _proposalId, bool _support, uint256 _credits) external onlyMember validProposal(_proposalId) nonReentrant {
+    function castQuadraticVote(uint256 _proposalId, bool _support, uint256 _credits) external nonReentrant {
+        if (!members[msg.sender].isMember) revert NotAMember();
+        if (_proposalId >= proposalCounter) revert ProposalNotFound();
         Proposal storage p = proposals[_proposalId];
-        require(p.state == ProposalState.Active, "Proposal is not active for voting");
-        require(!p.hasVoted[msg.sender], "Already voted on this proposal");
-        require(_credits > 0, "Credits must be greater than zero");
-        // NEW: Check for vesting period
-        require(block.timestamp >= members[msg.sender].joinedAt + VESTING_PERIOD, "Member voting power is not yet vested");
+        if (p.state != ProposalState.Active) revert InvalidProposalState(_proposalId, ProposalState.Active);
+        if (p.hasVoted[msg.sender]) revert AlreadyVoted();
+        if (_credits == 0) revert ZeroCredits();
+        if (block.timestamp < members[msg.sender].joinedAt + VESTING_PERIOD) revert VestingPeriodNotOver();
 
         uint256 totalPower = members[msg.sender].votingPower + members[msg.sender].delegatedPower;
         uint256 cost = _credits * _credits;
-        require(cost <= totalPower, "Insufficient voting power");
+        if (cost > totalPower) revert InsufficientVotingPower(cost, totalPower);
 
-        uint256 voteWeight = _credits; // Corrected: vote weight is the credits used
         p.hasVoted[msg.sender] = true;
-        p.voterCredits[msg.sender] = _credits;
-
         if (_support) {
-            p.forVotes += voteWeight;
+            p.forVotes += _credits;
         } else {
-            p.againstVotes += voteWeight;
+            p.againstVotes += _credits;
         }
         emit VoteCast(_proposalId, msg.sender, _support, _credits);
     }
 
-    /**
-     * @dev REFACTORED: Execute a proposal after voting ends.
-     * @notice Handles proposal state changes and treasury disbursement.
-     */
-    function executeProposal(uint256 _proposalId) external validProposal(_proposalId) nonReentrant {
+    // NEW: Separated finalization logic
+    function finalizeProposal(uint256 _proposalId) external {
+        if (_proposalId >= proposalCounter) revert ProposalNotFound();
         Proposal storage p = proposals[_proposalId];
-        require(block.timestamp > p.endTime, "Voting period has not ended");
-        require(p.state == ProposalState.Active, "Proposal is not in active state");
+        if (block.timestamp <= p.endTime) revert VotingPeriodActive();
+        if (p.state != ProposalState.Active) revert InvalidProposalState(_proposalId, ProposalState.Active);
 
         uint256 totalVotes = p.forVotes + p.againstVotes;
         if (totalVotes < quorumVotes) {
-            p.state = ProposalState.Defeated; // Fails due to not meeting quorum
-            // Deposit is kept by treasury
+            p.state = ProposalState.Defeated;
+            // Deposit is kept by treasury for failed quorum
             emit ProposalStateChanged(_proposalId, ProposalState.Defeated);
             return;
         }
 
-        bool passed = (p.forVotes * 100 / totalVotes) > passingThresholdPercent;
+        // REFACTORED: Safer percentage calculation to avoid division
+        bool passed = p.forVotes * 100 > passingThresholdPercent * totalVotes;
         if (passed) {
-            p.state = ProposalState.Succeeded;
-            emit ProposalStateChanged(_proposalId, ProposalState.Succeeded);
-            
-            // Refund proposer's deposit for a successful proposal
-            payable(p.proposer).transfer(proposalDeposit);
-
-            if (p.amount > 0) {
-                require(address(this).balance >= p.amount, "Treasury funds insufficient for execution");
-                p.recipient.transfer(p.amount);
-            }
-            p.executed = true; // Mark as executed
-            p.state = ProposalState.Executed;
-            emit ProposalStateChanged(_proposalId, ProposalState.Executed);
+            p.state = ProposalState.Queued;
+            p.executableAt = block.timestamp + TIMELOCK_PERIOD;
+            emit ProposalStateChanged(_proposalId, ProposalState.Queued);
         } else {
             p.state = ProposalState.Defeated;
             // Deposit is kept by treasury
@@ -228,9 +219,30 @@ contract AdvancedDAO is Ownable, ReentrancyGuard {
         }
     }
 
+    // NEW: Separated execution logic with timelock
+    function execute(uint256 _proposalId) external nonReentrant {
+        if (_proposalId >= proposalCounter) revert ProposalNotFound();
+        Proposal storage p = proposals[_proposalId];
+        if (p.state != ProposalState.Queued) revert InvalidProposalState(_proposalId, ProposalState.Queued);
+        if (block.timestamp < p.executableAt) revert TimelockNotOver(p.executableAt);
+
+        p.state = ProposalState.Executed;
+        
+        // Refund proposer's deposit for a successful proposal
+        (bool sentRefund, ) = p.proposer.call{value: proposalDeposit}("");
+        require(sentRefund, "Failed to refund deposit");
+
+        if (p.amount > 0) {
+            if (address(this).balance < p.amount) revert InsufficientTreasury();
+            (bool sentPayment, ) = p.recipient.call{value: p.amount}("");
+            require(sentPayment, "Failed to send proposal funds");
+        }
+        emit ProposalStateChanged(_proposalId, ProposalState.Executed);
+    }
+
     // --- Admin Functions ---
     function setGovernanceParameters(uint256 _newDeposit, uint256 _newQuorum, uint256 _newThreshold) external onlyOwner {
-        require(_newThreshold > 0 && _newThreshold < 100, "Threshold must be between 1-99");
+        if (_newThreshold == 0 || _newThreshold >= 100) revert InvalidThreshold();
         proposalDeposit = _newDeposit;
         quorumVotes = _newQuorum;
         passingThresholdPercent = _newThreshold;
@@ -238,20 +250,26 @@ contract AdvancedDAO is Ownable, ReentrancyGuard {
     }
 
     // --- Delegation Functions ---
-    function delegateVotingPower(address _delegate) external onlyMember {
-        require(_delegate != msg.sender, "Cannot delegate to yourself");
-        require(members[_delegate].isMember, "Delegate must be a DAO member");
-        require(members[msg.sender].delegate == address(0), "Already delegated");
+    function delegateVotingPower(address _delegate) external {
+        if (!members[msg.sender].isMember) revert NotAMember();
+        if (_delegate == msg.sender) revert CannotDelegateToSelf();
+        if (!members[_delegate].isMember) revert DelegateNotMember();
+        if (members[msg.sender].delegate != address(0)) revert AlreadyDelegated();
 
         members[msg.sender].delegate = _delegate;
         members[_delegate].delegatedPower += members[msg.sender].votingPower;
+
+        // REFACTORED: Store index for O(1) removal
         delegators[_delegate].push(msg.sender);
+        delegatorIndices[_delegate][msg.sender] = delegators[_delegate].length - 1;
+
         emit VotingPowerDelegated(msg.sender, _delegate, members[msg.sender].votingPower);
     }
 
-    function revokeDelegation() external onlyMember {
+    function revokeDelegation() external {
+        if (!members[msg.sender].isMember) revert NotAMember();
         address delegate = members[msg.sender].delegate;
-        require(delegate != address(0), "No active delegation");
+        if (delegate == address(0)) revert NoActiveDelegation();
 
         members[delegate].delegatedPower -= members[msg.sender].votingPower;
         members[msg.sender].delegate = address(0);
@@ -259,31 +277,25 @@ contract AdvancedDAO is Ownable, ReentrancyGuard {
         emit DelegationRevoked(msg.sender, delegate);
     }
     
-    // --- View Functions ---
-    function getProposal(uint256 _proposalId) external view validProposal(_proposalId) returns (
-        string memory title, address proposer, uint256 forVotes, uint256 againstVotes,
-        ProposalState state, address recipient, uint256 amount
-    ) {
-        Proposal storage p = proposals[_proposalId];
-        return (p.title, p.proposer, p.forVotes, p.againstVotes, p.state, p.recipient, p.amount);
-    }
-
     // --- Internal Functions ---
+    // REFACTORED: O(1) removal of delegator from array
     function _removeDelegator(address _delegate, address _delegator) internal {
+        uint256 index = delegatorIndices[_delegate][_delegator];
         address[] storage delegatorList = delegators[_delegate];
-        for (uint256 i = 0; i < delegatorList.length; i++) {
-            if (delegatorList[i] == _delegator) {
-                delegatorList[i] = delegatorList[delegatorList.length - 1];
-                delegatorList.pop();
-                break;
-            }
-        }
+        address lastDelegator = delegatorList[delegatorList.length - 1];
+
+        delegatorList[index] = lastDelegator;
+        delegatorIndices[_delegate][lastDelegator] = index;
+
+        delegatorList.pop();
+        delete delegatorIndices[_delegate][_delegator];
     }
 
     // --- Treasury Functions ---
     receive() external payable {}
 
     function withdraw() external onlyOwner {
-        payable(owner()).transfer(address(this).balance);
+        (bool sent, ) = owner().call{value: address(this).balance}("");
+        require(sent, "Withdrawal failed");
     }
 }
