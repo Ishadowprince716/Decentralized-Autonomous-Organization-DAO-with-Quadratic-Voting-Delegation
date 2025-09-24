@@ -6,20 +6,33 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
 /**
- * @title Ultra-Advanced DAO with Cutting-Edge Features
- * @dev Additional features to make your DAO stand out in SIH 2025
+ * @title Ultra-Advanced DAO with Cutting-Edge Features - Enhanced Version
+ * @dev Improved version with optimizations, security fixes, and new features
+ * @author Enhanced for SIH 2025
  */
-contract UltraAdvancedDAO is EnhancedAdvancedDAO {
+contract UltraAdvancedDAO is EnhancedAdvancedDAO, Pausable {
     using ECDSA for bytes32;
+    using SafeMath for uint256;
 
-    // --- NEW FEATURE 1: NFT-Based Membership & Reputation System ---
+    // --- CONSTANTS FOR GAS OPTIMIZATION ---
+    uint256 private constant MAX_ARRAY_LENGTH = 100;
+    uint256 private constant PRECISION_FACTOR = 10**18;
+    uint256 private constant MAX_CONVICTION_DECAY = 365 days;
+    uint256 private constant MIN_PROPOSAL_DELAY = 1 hours;
+    uint256 private constant MAX_SLASHING_PERCENTAGE = 50; // 50% max slashing
+
+    // --- IMPROVED NFT-BASED MEMBERSHIP & REPUTATION SYSTEM ---
     struct NFTGating {
         address nftContract;
         uint256 minTokens;
         bool isERC1155;
-        uint256 tokenId; // For ERC1155 specific token gating
+        uint256 tokenId;
+        uint256 votingPowerMultiplier; // NEW: Different NFTs give different power
+        bool isActive;
     }
 
     struct ReputationScore {
@@ -27,14 +40,17 @@ contract UltraAdvancedDAO is EnhancedAdvancedDAO {
         uint256 successfulProposals;
         uint256 participationRate;
         uint256 delegationTrust;
-        bool isVerified; // KYC/verification status
+        bool isVerified;
+        uint256 lastUpdate; // NEW: Track reputation updates
+        uint256 streakCount; // NEW: Consecutive participation streak
     }
 
     mapping(address => ReputationScore) public reputation;
     mapping(address => NFTGating) public nftGatingRules;
     address[] public acceptedNFTContracts;
+    mapping(address => bool) private isAcceptedNFT; // NEW: O(1) lookup
 
-    // --- NEW FEATURE 2: Prediction Markets & Futarchy ---
+    // --- ENHANCED PREDICTION MARKETS & FUTARCHY ---
     struct PredictionMarket {
         uint256 proposalId;
         uint256 yesPool;
@@ -42,43 +58,56 @@ contract UltraAdvancedDAO is EnhancedAdvancedDAO {
         uint256 endTime;
         bool resolved;
         bool outcome;
+        uint256 totalVolume; // NEW: Track trading volume
+        uint256 liquidityReward; // NEW: Rewards for market makers
         mapping(address => uint256) yesShares;
         mapping(address => uint256) noShares;
+        mapping(address => bool) hasWithdrawn; // NEW: Track withdrawals
     }
 
     mapping(uint256 => PredictionMarket) public predictionMarkets;
     uint256 public constant MARKET_DURATION = 3 days;
+    uint256 public marketMakerRewardRate = 100; // 1% in basis points
 
-    // --- NEW FEATURE 3: Cross-Chain Governance ---
+    // --- ENHANCED CROSS-CHAIN GOVERNANCE ---
     struct CrossChainProposal {
         uint256 localProposalId;
         uint256[] chainIds;
         mapping(uint256 => bool) executedOnChain;
-        bytes32 merkleRoot; // For cross-chain vote verification
+        bytes32 merkleRoot;
+        uint256 crossChainFee; // NEW: Fee for cross-chain execution
+        bool isEmergency; // NEW: Emergency cross-chain proposals
     }
 
     mapping(uint256 => CrossChainProposal) public crossChainProposals;
+    mapping(uint256 => bool) public supportedChainIds;
 
-    // --- NEW FEATURE 4: AI-Powered Proposal Analysis ---
+    // --- ENHANCED AI-POWERED PROPOSAL ANALYSIS ---
     struct AIAnalysis {
-        uint256 riskScore; // 0-100
-        uint256 impactScore; // 0-100
-        uint256 feasibilityScore; // 0-100
+        uint256 riskScore;
+        uint256 impactScore;
+        uint256 feasibilityScore;
         string aiSummary;
         bool requiresExpertReview;
+        uint256 confidenceLevel; // NEW: AI confidence in analysis
+        uint256 analysisTimestamp; // NEW: When analysis was performed
+        address[] expertReviewers; // NEW: Required expert reviewers
     }
 
     mapping(uint256 => AIAnalysis) public aiAnalysis;
-    address public aiOracle; // AI analysis provider
+    address public aiOracle;
+    mapping(address => bool) public authorizedExperts; // NEW: Expert reviewers
 
-    // --- NEW FEATURE 5: Dynamic Voting Mechanisms ---
+    // --- ENHANCED DYNAMIC VOTING MECHANISMS ---
     enum VotingMechanism { 
         Standard, 
         Quadratic, 
         ConvictionVoting, 
         RankedChoice, 
         LiquidDemocracy,
-        FutarchyBased
+        FutarchyBased,
+        WeightedVoting, // NEW
+        TokenHolderVoting // NEW
     }
 
     struct ConvictionVoting {
@@ -86,70 +115,177 @@ contract UltraAdvancedDAO is EnhancedAdvancedDAO {
         mapping(address => uint256) lastVoteTime;
         uint256 convictionThreshold;
         uint256 totalConviction;
+        uint256 decayRate; // NEW: Configurable decay rate
+        uint256 maxConviction; // NEW: Cap on conviction
+    }
+
+    struct LiquidDemocracy {
+        mapping(address => address) delegates;
+        mapping(address => uint256) delegatedVotingPower;
+        mapping(address => address[]) delegators; // NEW: Track who delegates to whom
+        uint256 maxDelegationDepth; // NEW: Prevent infinite delegation chains
     }
 
     mapping(uint256 => VotingMechanism) public proposalVotingType;
     mapping(uint256 => ConvictionVoting) public convictionVotes;
+    mapping(uint256 => LiquidDemocracy) public liquidDemocracy;
 
-    // --- NEW FEATURE 6: Staking & Slashing Mechanism ---
+    // --- ENHANCED STAKING & SLASHING MECHANISM ---
     struct StakingInfo {
         uint256 stakedAmount;
         uint256 lockEndTime;
         uint256 rewardMultiplier;
         bool canBeSlashed;
+        uint256 slashingHistory; // NEW: Track past slashing events
+        uint256 rewardsClaimed; // NEW: Track claimed rewards
+        uint256 stakingTier; // NEW: Different tiers with different benefits
     }
 
     mapping(address => StakingInfo) public memberStaking;
     uint256 public totalStaked;
     uint256 public slashingPool;
+    uint256[] public stakingTiers = [0.1 ether, 1 ether, 10 ether]; // NEW: Tier thresholds
+    uint256[] public tierMultipliers = [100, 200, 500]; // NEW: Tier benefits (in basis points)
 
-    // --- NEW FEATURE 7: Multi-Signature Proposals ---
+    // --- NEW: TREASURY MANAGEMENT ---
+    struct TreasuryAllocation {
+        uint256 proposalBudget;     // Budget for new proposals
+        uint256 operationalFund;    // Day-to-day operations
+        uint256 emergencyReserve;   // Emergency situations
+        uint256 stakingRewards;     // Staking reward pool
+        uint256 developmentFund;    // Future development
+    }
+
+    TreasuryAllocation public treasuryAllocation;
+    mapping(address => uint256) public contributorRewards; // NEW: Track contributor rewards
+
+    // --- NEW: TIME-LOCKED PROPOSALS ---
+    struct TimeLock {
+        uint256 delay;
+        uint256 proposalId;
+        uint256 executeAfter;
+        bool executed;
+        bytes32 txHash;
+    }
+
+    mapping(uint256 => TimeLock) public proposalTimeLocks;
+    uint256 public defaultTimeLockDelay = 2 days;
+
+    // --- ENHANCED MULTI-SIGNATURE PROPOSALS ---
     struct MultiSigProposal {
         address[] signers;
         mapping(address => bool) hasSigned;
+        mapping(address => uint256) signatureTimestamp; // NEW: Track when signed
         uint256 requiredSignatures;
         uint256 currentSignatures;
         bytes32 proposalHash;
+        uint256 expiryTime; // NEW: Signature expiry
+        bool isEmergency; // NEW: Emergency multi-sig
     }
 
     mapping(uint256 => MultiSigProposal) public multiSigProposals;
 
-    // --- NEW FEATURE 8: Gasless Voting (Meta-Transactions) ---
+    // --- ENHANCED GASLESS VOTING (META-TRANSACTIONS) ---
     mapping(address => uint256) public nonces;
     bytes32 public constant VOTE_TYPEHASH = keccak256(
         "Vote(uint256 proposalId,bool support,uint256 credits,uint256 nonce,uint256 deadline)"
     );
 
-    // --- EVENTS FOR NEW FEATURES ---
-    event ReputationUpdated(address indexed member, uint256 newScore);
-    event NFTGatingEnabled(address indexed nftContract, uint256 minTokens);
-    event PredictionMarketCreated(uint256 indexed proposalId, uint256 endTime);
-    event PredictionMarketResolved(uint256 indexed proposalId, bool outcome);
-    event CrossChainProposalCreated(uint256 indexed proposalId, uint256[] chainIds);
-    event AIAnalysisCompleted(uint256 indexed proposalId, uint256 riskScore);
-    event MemberStaked(address indexed member, uint256 amount, uint256 lockTime);
-    event MemberSlashed(address indexed member, uint256 amount, string reason);
-    event GaslessVoteCast(address indexed voter, uint256 indexed proposalId);
+    mapping(address => bool) public authorizedRelayers; // NEW: Authorized meta-tx relayers
+    uint256 public gaslessVotingReward = 0.001 ether; // NEW: Reward for relayers
 
-    // --- NFT-BASED MEMBERSHIP FUNCTIONS ---
+    // --- NEW: PROPOSAL CATEGORIES & TEMPLATES ---
+    enum ProposalCategory {
+        Treasury,
+        Governance,
+        Technical,
+        Community,
+        Emergency,
+        CrossChain,
+        Partnership
+    }
+
+    struct ProposalTemplate {
+        string name;
+        ProposalCategory category;
+        uint256 minVotingPower;
+        uint256 minStake;
+        VotingMechanism votingType;
+        uint256 votingDuration;
+        bool requiresAIAnalysis;
+        bool requiresExpertReview;
+    }
+
+    mapping(uint256 => ProposalTemplate) public proposalTemplates;
+    mapping(uint256 => ProposalCategory) public proposalCategories;
+    uint256 public templateCounter;
+
+    // --- ENHANCED EVENTS ---
+    event ReputationUpdated(address indexed member, uint256 newScore, uint256 streakCount);
+    event NFTGatingEnabled(address indexed nftContract, uint256 minTokens, uint256 multiplier);
+    event PredictionMarketCreated(uint256 indexed proposalId, uint256 endTime, uint256 liquidityReward);
+    event PredictionMarketResolved(uint256 indexed proposalId, bool outcome, uint256 totalVolume);
+    event CrossChainProposalCreated(uint256 indexed proposalId, uint256[] chainIds, uint256 fee);
+    event AIAnalysisCompleted(uint256 indexed proposalId, uint256 riskScore, uint256 confidence);
+    event MemberStaked(address indexed member, uint256 amount, uint256 lockTime, uint256 tier);
+    event MemberSlashed(address indexed member, uint256 amount, string reason, uint256 newHistory);
+    event GaslessVoteCast(address indexed voter, uint256 indexed proposalId, address relayer);
+    event ProposalTemplateCreated(uint256 indexed templateId, string name, ProposalCategory category);
+    event TreasuryRebalanced(uint256 proposalBudget, uint256 operationalFund, uint256 emergencyReserve);
+    event TimeLockProposalScheduled(uint256 indexed proposalId, uint256 executeAfter);
+
+    // --- MODIFIERS ---
+    modifier onlyExpert() {
+        require(authorizedExperts[msg.sender], "Not authorized expert");
+        _;
+    }
+
+    modifier onlyRelayer() {
+        require(authorizedRelayers[msg.sender], "Not authorized relayer");
+        _;
+    }
+
+    modifier validProposal(uint256 _proposalId) {
+        require(_proposalId < proposalCounter, "Invalid proposal");
+        _;
+    }
+
+    modifier notSlashed(address _member) {
+        require(memberStaking[_member].slashingHistory < 3, "Member slashed too many times");
+        _;
+    }
+
+    // --- ENHANCED NFT-BASED MEMBERSHIP FUNCTIONS ---
     function enableNFTGating(
         address _nftContract,
         uint256 _minTokens,
         bool _isERC1155,
-        uint256 _tokenId
+        uint256 _tokenId,
+        uint256 _multiplier
     ) external onlyOwner {
+        require(_nftContract != address(0), "Invalid contract address");
+        require(_multiplier > 0 && _multiplier <= 1000, "Invalid multiplier"); // Max 10x
+        
         nftGatingRules[_nftContract] = NFTGating({
             nftContract: _nftContract,
             minTokens: _minTokens,
             isERC1155: _isERC1155,
-            tokenId: _tokenId
+            tokenId: _tokenId,
+            votingPowerMultiplier: _multiplier,
+            isActive: true
         });
-        acceptedNFTContracts.push(_nftContract);
-        emit NFTGatingEnabled(_nftContract, _minTokens);
+
+        if (!isAcceptedNFT[_nftContract]) {
+            acceptedNFTContracts.push(_nftContract);
+            isAcceptedNFT[_nftContract] = true;
+        }
+        
+        emit NFTGatingEnabled(_nftContract, _minTokens, _multiplier);
     }
 
-    function joinDAOWithNFT(address _nftContract) external payable nonReentrant {
+    function joinDAOWithNFT(address _nftContract) external payable nonReentrant whenNotPaused {
         require(_hasRequiredNFTs(msg.sender, _nftContract), "Insufficient NFTs");
+        require(nftGatingRules[_nftContract].isActive, "NFT gating disabled");
         
         if (members[msg.sender].isMember) revert AlreadyMember();
         if (msg.value < MEMBERSHIP_FEE) revert InsufficientFee();
@@ -166,66 +302,110 @@ contract UltraAdvancedDAO is EnhancedAdvancedDAO {
             delegationExpiry: 0
         });
         
-        // Initialize reputation
+        // Initialize enhanced reputation
         reputation[msg.sender] = ReputationScore({
-            score: 100, // Starting reputation
+            score: 100,
             successfulProposals: 0,
             participationRate: 0,
             delegationTrust: 0,
-            isVerified: false
+            isVerified: false,
+            lastUpdate: block.timestamp,
+            streakCount: 0
         });
 
         memberCount++;
         emit MemberAdded(msg.sender, votingPower);
     }
 
-    // --- PREDICTION MARKET FUNCTIONS ---
-    function createPredictionMarket(uint256 _proposalId) external payable {
-        require(_proposalId < proposalCounter, "Invalid proposal");
+    // --- ENHANCED PREDICTION MARKET FUNCTIONS ---
+    function createPredictionMarket(
+        uint256 _proposalId,
+        uint256 _liquidityReward
+    ) external payable validProposal(_proposalId) {
         require(msg.value >= 0.1 ether, "Insufficient seed funding");
+        require(_liquidityReward <= msg.value / 2, "Liquidity reward too high");
 
         PredictionMarket storage market = predictionMarkets[_proposalId];
         market.proposalId = _proposalId;
-        market.yesPool = msg.value / 2;
-        market.noPool = msg.value / 2;
+        market.yesPool = (msg.value - _liquidityReward) / 2;
+        market.noPool = (msg.value - _liquidityReward) / 2;
         market.endTime = block.timestamp + MARKET_DURATION;
         market.resolved = false;
+        market.liquidityReward = _liquidityReward;
 
-        emit PredictionMarketCreated(_proposalId, market.endTime);
+        emit PredictionMarketCreated(_proposalId, market.endTime, _liquidityReward);
     }
 
     function buyPredictionShares(
         uint256 _proposalId,
         bool _buyYes,
         uint256 _amount
-    ) external payable nonReentrant {
+    ) external payable nonReentrant whenNotPaused validProposal(_proposalId) {
         require(msg.value == _amount, "Incorrect payment");
+        require(_amount >= 0.01 ether, "Minimum bet required");
         
         PredictionMarket storage market = predictionMarkets[_proposalId];
         require(block.timestamp < market.endTime, "Market ended");
         require(!market.resolved, "Market resolved");
 
         if (_buyYes) {
-            market.yesPool += _amount;
-            market.yesShares[msg.sender] += _amount;
+            market.yesPool = market.yesPool.add(_amount);
+            market.yesShares[msg.sender] = market.yesShares[msg.sender].add(_amount);
         } else {
-            market.noPool += _amount;
-            market.noShares[msg.sender] += _amount;
+            market.noPool = market.noPool.add(_amount);
+            market.noShares[msg.sender] = market.noShares[msg.sender].add(_amount);
         }
+        
+        market.totalVolume = market.totalVolume.add(_amount);
+        _updateReputationForMarketParticipation(msg.sender);
     }
 
-    // --- CONVICTION VOTING FUNCTIONS ---
-    function castConvictionVote(uint256 _proposalId, uint256 _conviction) external {
+    function resolvePredictionMarket(
+        uint256 _proposalId,
+        bool _outcome
+    ) external onlyAuthorized validProposal(_proposalId) {
+        PredictionMarket storage market = predictionMarkets[_proposalId];
+        require(block.timestamp >= market.endTime, "Market still active");
+        require(!market.resolved, "Already resolved");
+
+        market.resolved = true;
+        market.outcome = _outcome;
+
+        emit PredictionMarketResolved(_proposalId, _outcome, market.totalVolume);
+    }
+
+    function claimPredictionRewards(uint256 _proposalId) external nonReentrant validProposal(_proposalId) {
+        PredictionMarket storage market = predictionMarkets[_proposalId];
+        require(market.resolved, "Market not resolved");
+        require(!market.hasWithdrawn[msg.sender], "Already withdrawn");
+
+        uint256 reward = _calculatePredictionReward(msg.sender, _proposalId);
+        require(reward > 0, "No rewards to claim");
+
+        market.hasWithdrawn[msg.sender] = true;
+        _safeTransfer(msg.sender, reward);
+    }
+
+    // --- ENHANCED CONVICTION VOTING FUNCTIONS ---
+    function castConvictionVote(
+        uint256 _proposalId,
+        uint256 _conviction
+    ) external validProposal(_proposalId) whenNotPaused {
         require(proposalVotingType[_proposalId] == VotingMechanism.ConvictionVoting, "Not conviction voting");
         require(_conviction > 0, "Must have conviction");
         
         ConvictionVoting storage cv = convictionVotes[_proposalId];
+        require(_conviction <= cv.maxConviction, "Conviction too high");
         
         // Calculate conviction decay
-        uint256 timeDecay = _calculateConvictionDecay(msg.sender, _proposalId);
-        cv.conviction[msg.sender] = _conviction + timeDecay;
+        uint256 currentConviction = _calculateCurrentConviction(msg.sender, _proposalId);
+        uint256 newConviction = currentConviction.add(_conviction);
+        
+        cv.conviction[msg.sender] = newConviction;
         cv.lastVoteTime[msg.sender] = block.timestamp;
-        cv.totalConviction += _conviction;
+        cv.totalConviction = cv.totalConviction.add(_conviction);
+        
+        _updateReputationForParticipation(msg.sender);
         
         // Check if threshold reached
         if (cv.totalConviction >= cv.convictionThreshold) {
@@ -233,47 +413,182 @@ contract UltraAdvancedDAO is EnhancedAdvancedDAO {
         }
     }
 
-    // --- STAKING FUNCTIONS ---
-    function stakeMembership(uint256 _lockDays) external payable nonReentrant {
-        require(msg.value >= 0.1 ether, "Minimum stake required");
+    function withdrawConviction(uint256 _proposalId) external validProposal(_proposalId) {
+        ConvictionVoting storage cv = convictionVotes[_proposalId];
+        uint256 userConviction = cv.conviction[msg.sender];
+        require(userConviction > 0, "No conviction to withdraw");
+
+        cv.conviction[msg.sender] = 0;
+        cv.totalConviction = cv.totalConviction.sub(userConviction);
+        cv.lastVoteTime[msg.sender] = 0;
+    }
+
+    // --- ENHANCED STAKING FUNCTIONS ---
+    function stakeMembership(uint256 _lockDays) external payable nonReentrant whenNotPaused notSlashed(msg.sender) {
+        require(msg.value >= stakingTiers[0], "Below minimum stake");
         require(_lockDays >= 7 && _lockDays <= 365, "Invalid lock period");
 
         StakingInfo storage stake = memberStaking[msg.sender];
         require(stake.stakedAmount == 0, "Already staking");
 
-        uint256 multiplier = _calculateStakeMultiplier(_lockDays);
+        uint256 tier = _getStakingTier(msg.value);
+        uint256 multiplier = _calculateStakeMultiplier(_lockDays, tier);
         
         stake.stakedAmount = msg.value;
         stake.lockEndTime = block.timestamp + (_lockDays * 1 days);
         stake.rewardMultiplier = multiplier;
         stake.canBeSlashed = true;
+        stake.stakingTier = tier;
 
-        totalStaked += msg.value;
+        totalStaked = totalStaked.add(msg.value);
         
-        // Increase voting power based on stake
-        members[msg.sender].votingPower += uint128(multiplier);
+        // Increase voting power based on stake and tier
+        uint256 powerIncrease = _calculateVotingPowerIncrease(msg.value, tier);
+        members[msg.sender].votingPower += uint128(powerIncrease);
         
-        emit MemberStaked(msg.sender, msg.value, stake.lockEndTime);
+        emit MemberStaked(msg.sender, msg.value, stake.lockEndTime, tier);
     }
 
-    function unstakeMembership() external nonReentrant {
+    function unstakeMembership() external nonReentrant whenNotPaused {
         StakingInfo storage stake = memberStaking[msg.sender];
         require(stake.stakedAmount > 0, "No stake found");
         require(block.timestamp >= stake.lockEndTime, "Still locked");
 
         uint256 amount = stake.stakedAmount;
         uint256 rewards = _calculateStakingRewards(msg.sender);
+        uint256 powerDecrease = _calculateVotingPowerIncrease(amount, stake.stakingTier);
         
         // Reset staking info
-        members[msg.sender].votingPower -= uint128(stake.rewardMultiplier);
-        totalStaked -= amount;
+        members[msg.sender].votingPower -= uint128(powerDecrease);
+        totalStaked = totalStaked.sub(amount);
         delete memberStaking[msg.sender];
 
         // Transfer stake + rewards
-        _safeTransfer(msg.sender, amount + rewards);
+        _safeTransfer(msg.sender, amount.add(rewards));
     }
 
-    // --- GASLESS VOTING (META-TRANSACTIONS) ---
+    // --- NEW: TREASURY MANAGEMENT FUNCTIONS ---
+    function rebalanceTreasury(
+        uint256 _proposalBudget,
+        uint256 _operationalFund,
+        uint256 _emergencyReserve,
+        uint256 _stakingRewards,
+        uint256 _developmentFund
+    ) external onlyAuthorized {
+        uint256 totalAllocation = _proposalBudget.add(_operationalFund).add(_emergencyReserve)
+            .add(_stakingRewards).add(_developmentFund);
+        
+        require(totalAllocation <= address(this).balance, "Insufficient treasury balance");
+        
+        treasuryAllocation = TreasuryAllocation({
+            proposalBudget: _proposalBudget,
+            operationalFund: _operationalFund,
+            emergencyReserve: _emergencyReserve,
+            stakingRewards: _stakingRewards,
+            developmentFund: _developmentFund
+        });
+        
+        emit TreasuryRebalanced(_proposalBudget, _operationalFund, _emergencyReserve);
+    }
+
+    function allocateContributorReward(
+        address _contributor,
+        uint256 _amount
+    ) external onlyAuthorized {
+        require(_amount <= treasuryAllocation.operationalFund, "Exceeds operational fund");
+        
+        contributorRewards[_contributor] = contributorRewards[_contributor].add(_amount);
+        treasuryAllocation.operationalFund = treasuryAllocation.operationalFund.sub(_amount);
+    }
+
+    function claimContributorReward() external nonReentrant {
+        uint256 reward = contributorRewards[msg.sender];
+        require(reward > 0, "No rewards to claim");
+        
+        contributorRewards[msg.sender] = 0;
+        _safeTransfer(msg.sender, reward);
+    }
+
+    // --- NEW: PROPOSAL TEMPLATES ---
+    function createProposalTemplate(
+        string memory _name,
+        ProposalCategory _category,
+        uint256 _minVotingPower,
+        uint256 _minStake,
+        VotingMechanism _votingType,
+        uint256 _votingDuration,
+        bool _requiresAIAnalysis,
+        bool _requiresExpertReview
+    ) external onlyAuthorized returns (uint256) {
+        uint256 templateId = templateCounter++;
+        
+        proposalTemplates[templateId] = ProposalTemplate({
+            name: _name,
+            category: _category,
+            minVotingPower: _minVotingPower,
+            minStake: _minStake,
+            votingType: _votingType,
+            votingDuration: _votingDuration,
+            requiresAIAnalysis: _requiresAIAnalysis,
+            requiresExpertReview: _requiresExpertReview
+        });
+        
+        emit ProposalTemplateCreated(templateId, _name, _category);
+        return templateId;
+    }
+
+    function createProposalFromTemplate(
+        uint256 _templateId,
+        string memory _descriptionHash,
+        address payable _recipient,
+        uint256 _amount
+    ) external payable returns (uint256) {
+        require(_templateId < templateCounter, "Invalid template");
+        
+        ProposalTemplate memory template = proposalTemplates[_templateId];
+        require(members[msg.sender].votingPower >= template.minVotingPower, "Insufficient voting power");
+        
+        if (template.minStake > 0) {
+            require(memberStaking[msg.sender].stakedAmount >= template.minStake, "Insufficient stake");
+        }
+        
+        uint256 proposalId = _createSingleProposal(_descriptionHash, _recipient, _amount);
+        proposalCategories[proposalId] = template.category;
+        proposalVotingType[proposalId] = template.votingType;
+        
+        if (template.requiresAIAnalysis) {
+            requestAIAnalysis(proposalId);
+        }
+        
+        return proposalId;
+    }
+
+    // --- NEW: TIME-LOCKED PROPOSALS ---
+    function scheduleTimeLockProposal(uint256 _proposalId) external onlyAuthorized validProposal(_proposalId) {
+        require(proposals[_proposalId].state == ProposalState.Succeeded, "Proposal not succeeded");
+        
+        uint256 executeAfter = block.timestamp.add(defaultTimeLockDelay);
+        proposalTimeLocks[_proposalId] = TimeLock({
+            delay: defaultTimeLockDelay,
+            proposalId: _proposalId,
+            executeAfter: executeAfter,
+            executed: false,
+            txHash: keccak256(abi.encode(_proposalId, executeAfter))
+        });
+        
+        emit TimeLockProposalScheduled(_proposalId, executeAfter);
+    }
+
+    function executeTimeLockProposal(uint256 _proposalId) external validProposal(_proposalId) {
+        TimeLock storage timeLock = proposalTimeLocks[_proposalId];
+        require(block.timestamp >= timeLock.executeAfter, "Still in timelock");
+        require(!timeLock.executed, "Already executed");
+        
+        timeLock.executed = true;
+        _executeProposal(_proposalId);
+    }
+
+    // --- ENHANCED GASLESS VOTING (META-TRANSACTIONS) ---
     function voteWithSignature(
         uint256 _proposalId,
         bool _support,
@@ -282,7 +597,7 @@ contract UltraAdvancedDAO is EnhancedAdvancedDAO {
         uint8 _v,
         bytes32 _r,
         bytes32 _s
-    ) external nonReentrant {
+    ) external nonReentrant onlyRelayer validProposal(_proposalId) {
         require(block.timestamp <= _deadline, "Signature expired");
         
         bytes32 structHash = keccak256(abi.encode(
@@ -302,75 +617,56 @@ contract UltraAdvancedDAO is EnhancedAdvancedDAO {
         
         // Cast vote on behalf of signer
         _castVoteInternal(_proposalId, _support, _credits, signer);
-        emit GaslessVoteCast(signer, _proposalId);
+        
+        // Reward relayer
+        _safeTransfer(msg.sender, gaslessVotingReward);
+        
+        emit GaslessVoteCast(signer, _proposalId, msg.sender);
     }
 
-    // --- AI ANALYSIS INTEGRATION ---
-    function requestAIAnalysis(uint256 _proposalId) external {
-        require(_proposalId < proposalCounter, "Invalid proposal");
-        require(aiOracle != address(0), "AI Oracle not set");
-        
-        // This would trigger an external AI analysis
-        // In practice, this would call an oracle or external service
-    }
-
-    function setAIAnalysis(
-        uint256 _proposalId,
-        uint256 _riskScore,
-        uint256 _impactScore,
-        uint256 _feasibilityScore,
-        string memory _summary,
-        bool _requiresReview
-    ) external {
-        require(msg.sender == aiOracle, "Only AI Oracle");
-        
-        aiAnalysis[_proposalId] = AIAnalysis({
-            riskScore: _riskScore,
-            impactScore: _impactScore,
-            feasibilityScore: _feasibilityScore,
-            aiSummary: _summary,
-            requiresExpertReview: _requiresReview
-        });
-        
-        emit AIAnalysisCompleted(_proposalId, _riskScore);
-    }
-
-    // --- SLASHING MECHANISM ---
+    // --- ENHANCED SLASHING MECHANISM ---
     function proposeSlashing(
         address _member,
-        uint256 _amount,
+        uint256 _percentage, // Percentage of stake to slash (0-MAX_SLASHING_PERCENTAGE)
         string memory _reason
     ) external onlyAuthorized returns (uint256) {
         require(memberStaking[_member].canBeSlashed, "Member cannot be slashed");
-        require(_amount <= memberStaking[_member].stakedAmount, "Insufficient stake");
+        require(_percentage > 0 && _percentage <= MAX_SLASHING_PERCENTAGE, "Invalid percentage");
         
-        // Create a special slashing proposal
-        return _createSlashingProposal(_member, _amount, _reason);
+        uint256 slashAmount = memberStaking[_member].stakedAmount.mul(_percentage).div(100);
+        return _createSlashingProposal(_member, slashAmount, _reason);
     }
 
-    function executeSlashing(uint256 _proposalId) external onlyAuthorized {
-        // Implementation for executing approved slashing
-        // Move slashed funds to slashing pool for redistribution
-    }
-
-    // --- CROSS-CHAIN GOVERNANCE ---
-    function createCrossChainProposal(
-        string memory _descriptionHash,
-        address payable _recipient,
+    function executeSlashing(
+        uint256 _proposalId,
+        address _member,
         uint256 _amount,
-        uint256[] memory _targetChainIds
-    ) external payable returns (uint256) {
-        uint256 proposalId = _createSingleProposal(_descriptionHash, _recipient, _amount);
+        string memory _reason
+    ) external onlyAuthorized {
+        require(proposals[_proposalId].state == ProposalState.Succeeded, "Proposal not succeeded");
         
-        CrossChainProposal storage ccProposal = crossChainProposals[proposalId];
-        ccProposal.localProposalId = proposalId;
-        ccProposal.chainIds = _targetChainIds;
+        StakingInfo storage stake = memberStaking[_member];
+        require(_amount <= stake.stakedAmount, "Amount exceeds stake");
         
-        emit CrossChainProposalCreated(proposalId, _targetChainIds);
-        return proposalId;
+        // Update staking info
+        stake.stakedAmount = stake.stakedAmount.sub(_amount);
+        stake.slashingHistory = stake.slashingHistory.add(1);
+        
+        // Add to slashing pool
+        slashingPool = slashingPool.add(_amount);
+        totalStaked = totalStaked.sub(_amount);
+        
+        // Reduce voting power
+        uint256 powerReduction = _calculateVotingPowerIncrease(_amount, stake.stakingTier);
+        members[_member].votingPower -= uint128(powerReduction);
+        
+        // Update reputation negatively
+        _updateReputationForSlashing(_member);
+        
+        emit MemberSlashed(_member, _amount, _reason, stake.slashingHistory);
     }
 
-    // --- INTERNAL HELPER FUNCTIONS ---
+    // --- ENHANCED INTERNAL HELPER FUNCTIONS ---
     function _hasRequiredNFTs(address _user, address _nftContract) internal view returns (bool) {
         NFTGating memory gating = nftGatingRules[_nftContract];
         
@@ -391,128 +687,9 @@ contract UltraAdvancedDAO is EnhancedAdvancedDAO {
             nftCount = IERC721(_nftContract).balanceOf(_user);
         }
         
-        // Bonus voting power: 1 per NFT, capped at 10
-        return nftCount > 10 ? 10 : nftCount;
+        // Apply multiplier, capped at reasonable limit
+        uint256 bonus = nftCount.mul(gating.votingPowerMultiplier).div(100);
+        return bonus > 50 ? 50 : bonus; // Cap at 50 bonus power
     }
 
-    function _calculateConvictionDecay(address _voter, uint256 _proposalId) internal view returns (uint256) {
-        ConvictionVoting storage cv = convictionVotes[_proposalId];
-        uint256 lastVote = cv.lastVoteTime[_voter];
-        
-        if (lastVote == 0) return 0;
-        
-        uint256 timePassed = block.timestamp - lastVote;
-        uint256 decayFactor = timePassed / 1 days; // Decay per day
-        uint256 currentConviction = cv.conviction[_voter];
-        
-        // Simple linear decay - can be made more sophisticated
-        return currentConviction > decayFactor ? currentConviction - decayFactor : 0;
-    }
-
-    function _calculateStakeMultiplier(uint256 _lockDays) internal pure returns (uint256) {
-        if (_lockDays >= 365) return 5;
-        if (_lockDays >= 180) return 3;
-        if (_lockDays >= 90) return 2;
-        return 1;
-    }
-
-    function _calculateStakingRewards(address _member) internal view returns (uint256) {
-        StakingInfo storage stake = memberStaking[_member];
-        uint256 stakingDuration = block.timestamp - (stake.lockEndTime - (365 days));
-        uint256 annualRate = 5; // 5% APY
-        
-        return (stake.stakedAmount * annualRate * stakingDuration) / (100 * 365 days);
-    }
-
-    function _castVoteInternal(
-        uint256 _proposalId,
-        bool _support,
-        uint256 _credits,
-        address _voter
-    ) internal {
-        // Implementation similar to existing castQuadraticVote but for internal use
-        // This enables gasless voting functionality
-    }
-
-    function _executeConvictionProposal(uint256 _proposalId) internal {
-        // Execute proposal that reached conviction threshold
-        Proposal storage p = proposals[_proposalId];
-        p.state = ProposalState.Succeeded;
-        // Additional execution logic
-    }
-
-    function _createSlashingProposal(
-        address _member,
-        uint256 _amount,
-        string memory _reason
-    ) internal returns (uint256) {
-        // Create a special governance proposal for slashing
-        // This would follow similar pattern to regular proposals
-        return 0; // Placeholder
-    }
-
-    // --- ADVANCED VIEW FUNCTIONS ---
-    function getReputationScore(address _member) external view returns (
-        uint256 score,
-        uint256 successfulProposals,
-        uint256 participationRate,
-        bool isVerified
-    ) {
-        ReputationScore memory rep = reputation[_member];
-        return (rep.score, rep.successfulProposals, rep.participationRate, rep.isVerified);
-    }
-
-    function getPredictionMarketStatus(uint256 _proposalId) external view returns (
-        uint256 yesPool,
-        uint256 noPool,
-        uint256 endTime,
-        bool resolved,
-        bool outcome
-    ) {
-        PredictionMarket storage market = predictionMarkets[_proposalId];
-        return (market.yesPool, market.noPool, market.endTime, market.resolved, market.outcome);
-    }
-
-    function getAIAnalysis(uint256 _proposalId) external view returns (
-        uint256 riskScore,
-        uint256 impactScore,
-        uint256 feasibilityScore,
-        string memory summary,
-        bool requiresReview
-    ) {
-        AIAnalysis memory analysis = aiAnalysis[_proposalId];
-        return (
-            analysis.riskScore,
-            analysis.impactScore,
-            analysis.feasibilityScore,
-            analysis.aiSummary,
-            analysis.requiresExpertReview
-        );
-    }
-
-    // --- ADMIN FUNCTIONS FOR NEW FEATURES ---
-    function setAIOracle(address _aiOracle) external onlyOwner {
-        aiOracle = _aiOracle;
-    }
-
-    function setConvictionThreshold(uint256 _proposalId, uint256 _threshold) external onlyAuthorized {
-        convictionVotes[_proposalId].convictionThreshold = _threshold;
-    }
-
-    function setProposalVotingType(uint256 _proposalId, VotingMechanism _mechanism) external onlyAuthorized {
-        proposalVotingType[_proposalId] = _mechanism;
-    }
-
-    // --- EMERGENCY FUNCTIONS ---
-    function emergencySlash(address _member, string memory _reason) external onlyOwner {
-        // Emergency slashing without proposal process
-        StakingInfo storage stake = memberStaking[_member];
-        uint256 amount = stake.stakedAmount;
-        
-        slashingPool += amount;
-        totalStaked -= amount;
-        delete memberStaking[_member];
-        
-        emit MemberSlashed(_member, amount, _reason);
-    }
-}
+    function _calculateCurrentConviction(address
