@@ -22,30 +22,6 @@ class DAOApp {
                 id: 1,
                 title: "Upgrade Treasury Management System",
                 description: "Implement automated treasury rebalancing with DeFi integration",
-// DAO Frontend JavaScript Application
-
-class DAOApp {
-    constructor() {
-        this.state = {
-            account: '',
-            isConnected: false,
-            memberInfo: null,
-            proposals: [],
-            activeTab: 'dashboard',
-            loading: false,
-            contractData: {
-                memberCount: 24,
-                totalProposals: 8,
-                treasuryBalance: 15.67,
-                activeProposals: 3
-            }
-        };
-
-        this.mockProposals = [
-            {
-                id: 1,
-                title: "Upgrade Treasury Management System",
-                description: "Implement automated treasury rebalancing with DeFi integration",
                 proposer: "0x1234...5678",
                 recipient: "0xabcd...ef01",
                 amount: 5.5,
@@ -261,6 +237,36 @@ class DAOApp {
         }
     }
 
+    async executeProposal(proposalId) {
+        const proposal = this.state.proposals.find(p => p.id === proposalId);
+        if (!proposal || proposal.state !== 'Succeeded') {
+            this.showNotification('This proposal cannot be executed.', 'error');
+            return;
+        }
+
+        this.setLoading(true);
+        this.showNotification('Executing proposal...', 'info');
+
+        try {
+            await this.delay(2000); // Simulate transaction
+
+            // Update treasury and proposal state
+            this.state.contractData.treasuryBalance -= proposal.amount;
+            this.state.proposals = this.state.proposals.map(p =>
+                p.id === proposalId ? { ...p, state: 'Executed' } : p
+            );
+
+            this.state.contractData.activeProposals -= 1;
+
+            this.showNotification('Proposal executed successfully! Funds transferred.', 'success');
+            this.updateUI();
+        } catch (error) {
+            this.showNotification('Failed to execute proposal', 'error');
+        } finally {
+            this.setLoading(false);
+        }
+    }
+
     async delegateVoting() {
         const delegateAddress = document.getElementById('delegate-input').value;
         if (!delegateAddress) {
@@ -365,7 +371,7 @@ class DAOApp {
 
         // Update stats
         document.getElementById('total-members').textContent = this.state.contractData.memberCount;
-        document.getElementById('treasury-balance').textContent = `${this.state.contractData.treasuryBalance} ETH`;
+        document.getElementById('treasury-balance').textContent = `${this.state.contractData.treasuryBalance.toFixed(2)} ETH`;
         document.getElementById('total-proposals').textContent = this.state.contractData.totalProposals;
         document.getElementById('active-proposals').textContent = this.state.contractData.activeProposals;
     }
@@ -455,15 +461,15 @@ class DAOApp {
                     </div>
                 </div>
 
-                ${this.renderVotingSection(proposal)}
+                ${this.renderProposalActions(proposal)}
             </div>
         `).join('');
 
-        // Bind voting events
-        this.bindVotingEvents();
+        // Bind proposal events
+        this.bindProposalEvents();
     }
 
-    renderVotingSection(proposal) {
+    renderProposalActions(proposal) {
         if (proposal.state === 'Active' && this.state.memberInfo && !proposal.hasVoted) {
             const maxCredits = this.state.memberInfo.votingPower + this.state.memberInfo.delegatedPower;
             return `
@@ -508,19 +514,38 @@ class DAOApp {
                     </p>
                 </div>
             `;
+        } else if (proposal.state === 'Succeeded') {
+            return `
+                <div class="flex justify-end">
+                    <button class="execute-btn" data-proposal-id="${proposal.id}">
+                        <svg class="w-4 h-4 mr-1 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path d="m3.5 12.5 5 5 12-12"></path>
+                        </svg>
+                        Execute
+                    </button>
+                </div>
+            `;
         }
         return '';
     }
 
-    bindVotingEvents() {
+    bindProposalEvents() {
         document.querySelectorAll('.vote-support, .vote-oppose').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                const proposalId = parseInt(e.target.dataset.proposalId);
-                const support = e.target.dataset.support === 'true';
+                const button = e.currentTarget;
+                const proposalId = parseInt(button.dataset.proposalId);
+                const support = button.dataset.support === 'true';
                 const creditsInput = document.querySelector(`input[data-proposal-id="${proposalId}"]`);
                 const credits = parseInt(creditsInput?.value || 1);
                 
                 this.castVote(proposalId, support, credits);
+            });
+        });
+
+        document.querySelectorAll('.execute-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const proposalId = parseInt(e.currentTarget.dataset.proposalId);
+                this.executeProposal(proposalId);
             });
         });
     }
@@ -572,9 +597,7 @@ class DAOApp {
         const messageEl = document.getElementById('notification-message');
         
         // Remove existing classes
-        banner.classList.remove('bg-red-100', 'border-red-500', 'text-red-700');
-        banner.classList.remove('bg-green-100', 'border-green-500', 'text-green-700');
-        banner.classList.remove('bg-blue-100', 'border-blue-500', 'text-blue-700');
+        banner.className = 'fixed top-5 right-5 p-4 rounded-lg border-l-4 shadow-lg z-50 hidden';
 
         // Add appropriate classes
         if (type === 'error') {
@@ -603,16 +626,14 @@ class DAOApp {
         this.state.loading = loading;
         
         // Update button states
-        const buttons = document.querySelectorAll('button');
+        const buttons = document.querySelectorAll('button, input[type="submit"]');
         buttons.forEach(btn => {
             if (loading) {
                 btn.disabled = true;
-                if (btn.classList.contains('loading-target')) {
-                    btn.classList.add('btn-loading');
-                }
+                btn.classList.add('opacity-50', 'cursor-not-allowed');
             } else {
                 btn.disabled = false;
-                btn.classList.remove('btn-loading');
+                btn.classList.remove('opacity-50', 'cursor-not-allowed');
             }
         });
     }
