@@ -691,5 +691,126 @@ contract UltraAdvancedDAO is EnhancedAdvancedDAO, Pausable {
         uint256 bonus = nftCount.mul(gating.votingPowerMultiplier).div(100);
         return bonus > 50 ? 50 : bonus; // Cap at 50 bonus power
     }
+    // --- CONTINUED INTERNAL FUNCTIONS ---
+
+    // Calculates the current conviction for a user on a proposal considering decay since last vote
+    function _calculateCurrentConviction(address _voter, uint256 _proposalId) internal view returns (uint256) {
+        ConvictionVoting storage cv = convictionVotes[_proposalId];
+        
+        uint256 lastTime = cv.lastVoteTime[_voter];
+        uint256 baseConviction = cv.conviction[_voter];
+        
+        if (lastTime == 0) {
+            return 0;
+        }
+        
+        uint256 timePassed = block.timestamp.sub(lastTime);
+        uint256 decayRate = cv.decayRate;
+        
+        if (timePassed >= MAX_CONVICTION_DECAY) {
+            return 0;
+        }
+        
+        // Apply decay linearly: new conviction = baseConviction * (1 - decayRatio)
+        uint256 decayRatio = timePassed.mul(PRECISION_FACTOR).div(MAX_CONVICTION_DECAY);
+        uint256 decayedConviction = baseConviction.mul(PRECISION_FACTOR.sub(decayRatio)).div(PRECISION_FACTOR);
+        
+        if (decayedConviction > cv.maxConviction) {
+            return cv.maxConviction;
+        } else {
+            return decayedConviction;
+        }
+    }
+
+    // Determines staking tier based on staked amount
+    function _getStakingTier(uint256 _amount) internal view returns (uint256) {
+        for (uint256 i = stakingTiers.length; i > 0; i--) {
+            if (_amount >= stakingTiers[i - 1]) {
+                return i; // tiers start from 1
+            }
+        }
+        return 0; // Below minimum tier
+    }
+
+    // Calculates stake reward multiplier based on lock period and tier (basis points)
+    function _calculateStakeMultiplier(uint256 _lockDays, uint256 _tier) internal view returns (uint256) {
+        // Example: base multiplier by tier + bonus for lock days
+        uint256 baseMultiplier = tierMultipliers[_tier - 1];
+        uint256 lockBonus = (_lockDays.mul(10)); // 10 basis points per day locked
+        uint256 totalMultiplier = baseMultiplier.add(lockBonus);
+
+        // Cap multiplier at 1000 (10x)
+        return totalMultiplier > 1000 ? 1000 : totalMultiplier;
+    }
+
+    // Calculates voting power increase based on stake and tier
+    function _calculateVotingPowerIncrease(uint256 _amount, uint256 _tier) internal pure returns (uint256) {
+        // Example formula: power increase proportional to amount and tier multiplier (in basis points)
+        uint256 multiplier = _tier * 100; // e.g. tier 1 => 100 bps = 1x multiplier
+        return _amount.mul(multiplier).div(10000); // Adjusted for basis points
+    }
+
+    // Calculates staking rewards for a member (simplified example)
+    function _calculateStakingRewards(address _member) internal view returns (uint256) {
+        StakingInfo storage stake = memberStaking[_member];
+        // Example fixed reward based on rewardMultiplier and staked amount
+        return stake.stakedAmount.mul(stake.rewardMultiplier).div(10000);
+    }
+
+    // Calculates prediction market rewards for a user
+    function _calculatePredictionReward(address _user, uint256 _proposalId) internal view returns (uint256) {
+        PredictionMarket storage market = predictionMarkets[_proposalId];
+        require(market.resolved, "Market unresolved");
+
+        uint256 userShares = market.outcome ? market.yesShares[_user] : market.noShares[_user];
+        uint256 winningPool = market.outcome ? market.yesPool : market.noPool;
+        uint256 losingPool = market.outcome ? market.noPool : market.yesPool;
+
+        if (userShares == 0 || winningPool == 0) {
+            return 0;
+        }
+
+        // User reward proportional to their shares, including reward from losing side minus liquidity reward
+        uint256 reward = userShares.mul(winningPool.add(losingPool).sub(market.liquidityReward)).div(winningPool);
+        return reward;
+    }
+
+    // Updates reputation for market participation (example)
+    function _updateReputationForMarketParticipation(address _member) internal {
+        ReputationScore storage rep = reputation[_member];
+        rep.participationRate = rep.participationRate.add(1); // simplistic increment
+        rep.lastUpdate = block.timestamp;
+        emit ReputationUpdated(_member, rep.score, rep.streakCount);
+    }
+
+    // Updates reputation for general participation (example)
+    function _updateReputationForParticipation(address _member) internal {
+        ReputationScore storage rep = reputation[_member];
+        rep.score = rep.score.add(10); // increment score by 10
+        rep.streakCount = rep.streakCount.add(1);
+        rep.lastUpdate = block.timestamp;
+        emit ReputationUpdated(_member, rep.score, rep.streakCount);
+    }
+
+    // Updates reputation negatively due to slashing
+    function _updateReputationForSlashing(address _member) internal {
+        ReputationScore storage rep = reputation[_member];
+        if (rep.score > 20) {
+            rep.score = rep.score.sub(20); // decrement score by 20
+        } else {
+            rep.score = 0;
+        }
+        rep.streakCount = 0;
+        rep.lastUpdate = block.timestamp;
+        emit ReputationUpdated(_member, rep.score, rep.streakCount);
+    }
+
+    // Safe ETH transfer helper
+    function _safeTransfer(address _to, uint256 _amount) internal {
+        (bool success, ) = _to.call{value: _amount}("");
+        require(success, "Transfer failed");
+    }
+
 
     function _calculateCurrentConviction(address
+
