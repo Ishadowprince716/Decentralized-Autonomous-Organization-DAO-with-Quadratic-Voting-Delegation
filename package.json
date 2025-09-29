@@ -6,9 +6,24 @@
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
+    "test:coverage": "hardhat coverage",
+    "test:gas": "REPORT_GAS=true hardhat test",
     "deploy": "hardhat run scripts/deploy.js --network core_testnet2",
+    "deploy:local": "hardhat run scripts/deploy.js --network localhost",
+    "deploy:verify": "hardhat verify --network core_testnet2",
     "node": "hardhat node",
-    "clean": "hardhat clean"
+    "clean": "hardhat clean",
+    "size": "hardhat size-contracts",
+    "size:check": "hardhat size-contracts --no-compile",
+    "flatten": "hardhat flatten",
+    "ipfs:pin": "node scripts/ipfs-pin.js",
+    "proposal:create": "hardhat run scripts/create-proposal.js",
+    "vote:delegate": "hardhat run scripts/delegate-votes.js",
+    "treasury:status": "hardhat run scripts/treasury-status.js",
+    "lint": "solhint contracts/**/*.sol",
+    "lint:fix": "solhint contracts/**/*.sol --fix",
+    "docs": "hardhat docgen",
+    "typechain": "hardhat compile && hardhat typechain"
   },
   "keywords": [
     "DAO",
@@ -17,16 +32,56 @@
     "Governance",
     "Solidity",
     "Hardhat",
-    "Blockchain"
+    "Blockchain",
+    "OpenZeppelin",
+    "Treasury Management",
+    "IPFS",
+    "Sybil Resistance"
   ],
   "author": "Your Name",
   "license": "MIT",
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",
-    "hardhat": "^2.19.0"
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
+    "@nomicfoundation/hardhat-ethers": "^3.0.0",
+    "@typechain/hardhat": "^9.1.0",
+    "@typechain/ethers-v6": "^0.5.1",
+    "hardhat": "^2.19.0",
+    "hardhat-gas-reporter": "^2.3.0",
+    "hardhat-contract-sizer": "^2.10.1",
+    "solidity-coverage": "^0.8.12",
+    "hardhat-deploy": "^0.12.4",
+    "hardhat-deploy-ethers": "^0.4.2",
+    "@kodex-data/hardhat-ipfs": "^1.0.0",
+    "hardhat-dependency-compiler": "^1.1.4",
+    "solhint": "^4.5.4",
+    "@solidity-parser/parser": "^0.18.0",
+    "solidity-docgen": "^0.6.0-beta.36",
+    "hardhat-abi-exporter": "^2.10.1"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.0.0",
-    "dotenv": "^16.3.1"
-  }
+    "@openzeppelin/contracts-upgradeable": "^5.0.0",
+    "@openzeppelin/merkle-tree": "^1.0.7",
+    "dotenv": "^16.3.1",
+    "ethers": "^6.13.2",
+    "ipfs-http-client": "^60.0.1",
+    "@pinata/sdk": "^2.1.0",
+    "merkletreejs": "^0.5.2",
+    "@zk-kit/incremental-merkle-tree.sol": "^1.7.0",
+    "chai": "^4.4.1",
+    "mocha": "^10.7.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/dao-quadratic-voting"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/dao-quadratic-voting/issues"
+  },
+  "homepage": "https://github.com/yourusername/dao-quadratic-voting#readme"
 }
