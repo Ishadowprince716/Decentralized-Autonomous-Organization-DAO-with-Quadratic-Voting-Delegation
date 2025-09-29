@@ -1,5 +1,9 @@
-require("@nomicfoundation/hardhat-toolbox");
+require("@nomicfoundation/hardhat-toolbox"); // Main toolbox with Ethers, Waffle, etc.
 require("dotenv").config();
+require("hardhat-contract-sizer"); // Contract size analysis
+require("hardhat-gas-reporter"); // Gas usage reporting
+require("solidity-coverage"); // Solidity code coverage
+require("hardhat-deploy"); // Deployment automation
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
@@ -22,6 +26,7 @@ module.exports = {
       chainId: 1115,
       gasPrice: 20000000000,
     },
+    // Add more networks as needed
   },
   paths: {
     sources: "./contracts",
@@ -32,4 +37,17 @@ module.exports = {
   mocha: {
     timeout: 40000,
   },
+  contractSizer: {
+    runOnCompile: true,
+    strict: true,
+  },
+  gasReporter: {
+    enabled: process.env.REPORT_GAS ? true : false,
+    currency: "USD",
+    coinmarketcap: process.env.COINMARKETCAP_API_KEY || "",
+  },
+  solidityCoverage: {},
+  deploy: {
+    // Configuration for hardhat-deploy, if needed
+  }
 };
