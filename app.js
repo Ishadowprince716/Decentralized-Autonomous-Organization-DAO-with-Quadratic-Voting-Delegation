@@ -1,630 +1,693 @@
-delay(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
+// Advanced DAO Application
+class AdvancedDAO {
+    constructor() {
+        this.walletAddress = null;
+        this.isMember = false;
+        this.currentNetwork = null;
+        this.contracts = {};
+        this.charts = {};
+        this.init();
     }
 
-    // Additional utility functions
-    formatDate(timestamp) {
-        if (!timestamp) return 'Unknown';
-        const date = new Date(timestamp);
-        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    async init() {
+        this.setupEventListeners();
+        this.setupTheme();
+        this.setupAccessibility();
+        await this.checkWalletConnection();
+        this.initializeCharts();
+        this.loadInitialData();
     }
 
-    toggleDarkMode() {
-        this.state.darkMode = !this.state.darkMode;
-        document.body.classList.toggle('dark-mode', this.state.darkMode);
-        this.showNotification(`Dark mode ${this.state.darkMode ? 'enabled' : 'disabled'}`, 'success');
+    // Theme Management
+    setupTheme() {
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const theme = savedTheme === 'system' ? (prefersDark ? 'dark' : 'light') : savedTheme;
+        
+        document.documentElement.classList.toggle('dark', theme === 'dark');
+        document.body.setAttribute('data-theme', theme);
     }
 
-    async refreshData() {
-        this.setLoading(true);
-        this.showNotification('Refreshing data...', 'info');
+    // Accessibility Features
+    setupAccessibility() {
+        // High contrast
+        const highContrast = localStorage.getItem('high-contrast') === 'true';
+        if (highContrast) document.body.classList.add('high-contrast');
 
-        try {
-            await this.delay(1000);
-            
-            // Simulate data refresh
-            this.state.contractData.memberCount = Math.floor(Math.random() * 10) + 20;
-            this.state.contractData.treasuryBalance = (Math.random() * 20 + 10).toFixed(2);
-            
-            this.showNotification('Data refreshed successfully!', 'success');
-            this.updateUI();
-        } catch (error) {
-            this.showNotification('Failed to refresh data', 'error');
-        } finally {
-            this.setLoading(false);
+        // Large text
+        const largeText = localStorage.getItem('large-text') === 'true';
+        if (largeText) document.body.classList.add('large-text');
+
+        // Reduced motion
+        const reduceMotion = localStorage.getItem('reduce-motion') === 'true';
+        if (reduceMotion) document.body.classList.add('reduce-motion');
+    }
+
+    // Wallet Integration
+    async checkWalletConnection() {
+        if (typeof window.ethereum !== 'undefined') {
+            try {
+                const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+                if (accounts.length > 0) {
+                    await this.handleWalletConnected(accounts[0]);
+                }
+            } catch (error) {
+                console.error('Error checking wallet connection:', error);
+            }
         }
     }
 
-    exportData() {
+    async connectWallet() {
+        if (typeof window.ethereum !== 'undefined') {
+            try {
+                const accounts = await window.ethereum.request({ 
+                    method: 'eth_requestAccounts' 
+                });
+                await this.handleWalletConnected(accounts[0]);
+                this.showNotification('Wallet connected successfully!', 'success');
+            } catch (error) {
+                this.showNotification('Failed to connect wallet', 'error');
+                console.error('Wallet connection error:', error);
+            }
+        } else {
+            this.showNotification('Please install MetaMask!', 'error');
+        }
+    }
+
+    async handleWalletConnected(address) {
+        this.walletAddress = address;
+        this.updateWalletUI();
+        await this.checkNetwork();
+        await this.checkMembership();
+        this.loadMemberData();
+    }
+
+    // Network Management
+    async checkNetwork() {
+        if (typeof window.ethereum !== 'undefined') {
+            const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+            this.currentNetwork = this.getNetworkName(chainId);
+            
+            if (chainId !== '0x45B') { // Core Testnet
+                this.showNetworkWarning();
+            } else {
+                this.hideNetworkWarning();
+            }
+        }
+    }
+
+    getNetworkName(chainId) {
+        const networks = {
+            '0x1': 'Ethereum Mainnet',
+            '0x45B': 'Core Testnet',
+            '0x89': 'Polygon',
+            '0x13881': 'Mumbai Testnet'
+        };
+        return networks[chainId] || `Unknown (${chainId})`;
+    }
+
+    async switchNetwork() {
         try {
-            const data = {
-                account: this.state.account,
-                memberInfo: this.state.memberInfo,
-                proposals: this.state.proposals,
-                votingHistory: this.state.votingHistory,
-                contractData: this.state.contractData,
-                exportedAt: new Date().toISOString()
+            await window.ethereum.request({
+                method: 'wallet_switchEthereumChain',
+                params: [{ chainId: '0x45B' }], // Core Testnet
+            });
+        } catch (error) {
+            if (error.code === 4902) {
+                await this.addCoreNetwork();
+            }
+        }
+    }
+
+    async addCoreNetwork() {
+        try {
+            await window.ethereum.request({
+                method: 'wallet_addEthereumChain',
+                params: [{
+                    chainId: '0x45B',
+                    chainName: 'Core Testnet',
+                    rpcUrls: ['https://rpc.test.btcs.network/'],
+                    nativeCurrency: {
+                        name: 'Core',
+                        symbol: 'CORE',
+                        decimals: 18
+                    },
+                    blockExplorerUrls: ['https://scan.test.btcs.network/']
+                }]
+            });
+        } catch (error) {
+            this.showNotification('Failed to add Core network', 'error');
+        }
+    }
+
+    // DAO Membership
+    async checkMembership() {
+        try {
+            // Mock API call - replace with actual contract call
+            const response = await this.apiCall('/api/members/check', {
+                address: this.walletAddress
+            });
+            this.isMember = response.isMember;
+            this.updateMembershipUI();
+        } catch (error) {
+            console.error('Error checking membership:', error);
+        }
+    }
+
+    async joinDAO() {
+        try {
+            this.showLoading('btn-join-dao', 'Joining DAO...');
+            
+            // Mock transaction - replace with actual contract interaction
+            const txHash = await this.mockTransaction('joinDAO', {
+                value: '0.01'
+            });
+
+            this.isMember = true;
+            this.updateMembershipUI();
+            this.showNotification('🎉 Successfully joined the DAO!', 'success');
+            
+            // Show onboarding tour
+            this.showOnboardingTour();
+            
+        } catch (error) {
+            this.showNotification('Failed to join DAO', 'error');
+            console.error('Join DAO error:', error);
+        } finally {
+            this.hideLoading('btn-join-dao', 'Join DAO (0.01 ETH)');
+        }
+    }
+
+    // Proposal Management
+    async createProposal(proposalData) {
+        try {
+            this.showLoading('btn-submit-proposal', 'Creating Proposal...');
+
+            const response = await this.apiCall('/api/proposals/create', {
+                ...proposalData,
+                proposer: this.walletAddress
+            });
+
+            this.showNotification('Proposal created successfully!', 'success');
+            this.switchTab('tab-proposals');
+            this.loadProposals();
+
+        } catch (error) {
+            this.showNotification('Failed to create proposal', 'error');
+            throw error;
+        } finally {
+            this.hideLoading('btn-submit-proposal', 'Create Proposal');
+        }
+    }
+
+    async voteOnProposal(proposalId, votes, support) {
+        try {
+            // Calculate quadratic cost
+            const cost = votes * votes;
+            const availablePower = await this.getVotingPower();
+
+            if (cost > availablePower) {
+                throw new Error('Insufficient voting power');
+            }
+
+            const response = await this.apiCall('/api/proposals/vote', {
+                proposalId,
+                voter: this.walletAddress,
+                votes,
+                support,
+                cost
+            });
+
+            this.showNotification('Vote cast successfully!', 'success');
+            return response;
+
+        } catch (error) {
+            this.showNotification('Failed to cast vote: ' + error.message, 'error');
+            throw error;
+        }
+    }
+
+    // Delegation System
+    async delegateVotingPower(delegateAddress, duration = null, powerCap = null) {
+        try {
+            const delegation = {
+                delegator: this.walletAddress,
+                delegate: delegateAddress,
+                duration,
+                powerCap
             };
 
-            const dataStr = JSON.stringify(data, null, 2);
-            const blob = new Blob([dataStr], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `dao-data-${Date.now()}.json`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
+            const response = await this.apiCall('/api/delegation/delegate', delegation);
+            this.showNotification('Voting power delegated successfully!', 'success');
+            return response;
 
-            this.showNotification('Data exported successfully!', 'success');
+        } catch (error) {
+            this.showNotification('Failed to delegate voting power', 'error');
+            throw error;
+        }
+    }
+
+    async revokeDelegation() {
+        try {
+            const response = await this.apiCall('/api/delegation/revoke', {
+                delegator: this.walletAddress
+            });
+            this.showNotification('Delegation revoked successfully!', 'success');
+            return response;
+        } catch (error) {
+            this.showNotification('Failed to revoke delegation', 'error');
+            throw error;
+        }
+    }
+
+    // Analytics and Charts
+    initializeCharts() {
+        // Participation Chart
+        const participationCtx = document.getElementById('participation-chart');
+        if (participationCtx) {
+            this.charts.participation = new Chart(participationCtx, {
+                type: 'line',
+                data: {
+                    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+                    datasets: [{
+                        label: 'Voting Participation %',
+                        data: [65, 59, 80, 81, 56, 72],
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        }
+                    }
+                }
+            });
+        }
+
+        // Success Rate Chart
+        const successCtx = document.getElementById('success-chart');
+        if (successCtx) {
+            this.charts.success = new Chart(successCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Passed', 'Failed', 'Pending'],
+                    datasets: [{
+                        data: [42, 35, 23],
+                        backgroundColor: [
+                            '#10b981',
+                            '#ef4444',
+                            '#f59e0b'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    // Multi-signature Treasury
+    async proposeTransaction(transactionData) {
+        try {
+            const proposal = {
+                type: 'transaction',
+                ...transactionData,
+                proposer: this.walletAddress,
+                signaturesRequired: 3 // Configurable
+            };
+
+            const response = await this.apiCall('/api/treasury/propose', proposal);
+            this.showNotification('Transaction proposal created!', 'success');
+            return response;
+
+        } catch (error) {
+            this.showNotification('Failed to create transaction proposal', 'error');
+            throw error;
+        }
+    }
+
+    async signTransaction(proposalId) {
+        try {
+            const response = await this.apiCall('/api/treasury/sign', {
+                proposalId,
+                signer: this.walletAddress
+            });
+            this.showNotification('Transaction signed!', 'success');
+            return response;
+        } catch (error) {
+            this.showNotification('Failed to sign transaction', 'error');
+            throw error;
+        }
+    }
+
+    // Gas Optimization
+    async getGasEstimation(method, params) {
+        try {
+            const response = await this.apiCall('/api/gas/estimate', {
+                method,
+                params
+            });
+            return response;
+        } catch (error) {
+            console.error('Gas estimation failed:', error);
+            return { gasLimit: 300000, gasPrice: '20000000000' }; // Fallback values
+        }
+    }
+
+    async getOptimalGasTime() {
+        try {
+            const response = await this.apiCall('/api/gas/optimal-time');
+            return response;
+        } catch (error) {
+            console.error('Failed to get optimal gas time:', error);
+            return { optimal: false, waitTime: 0 };
+        }
+    }
+
+    // Reputation System
+    async calculateReputation(address) {
+        try {
+            const response = await this.apiCall('/api/reputation/calculate', { address });
+            return response.reputationScore;
+        } catch (error) {
+            console.error('Reputation calculation failed:', error);
+            return 0;
+        }
+    }
+
+    // Data Export
+    async exportData(type, format = 'json') {
+        try {
+            const response = await this.apiCall(`/api/export/${type}`, { format });
+            
+            if (format === 'csv') {
+                this.downloadCSV(response.data, `${type}-export.csv`);
+            } else {
+                this.downloadJSON(response.data, `${type}-export.json`);
+            }
+            
+            this.showNotification(`Data exported successfully as ${format.toUpperCase()}`, 'success');
         } catch (error) {
             this.showNotification('Failed to export data', 'error');
+            throw error;
         }
     }
 
-    getProposalStats() {
-        const stats = {
-            total: this.state.proposals.length,
-            active: this.state.proposals.filter(p => p.state === 'Active').length,
-            succeeded: this.state.proposals.filter(p => p.state === 'Succeeded').length,
-            defeated: this.state.proposals.filter(p => p.state === 'Defeated').length,
-            executed: this.state.proposals.filter(p => p.state === 'Executed').length,
-            totalVotes: this.state.proposals.reduce((sum, p) => sum + p.forVotes + p.againstVotes, 0),
-            averageParticipation: 0
-        };
-
-        if (stats.total > 0) {
-            stats.averageParticipation = (stats.totalVotes / stats.total).toFixed(1);
-        }
-
-        return stats;
-    }
-
-    getMemberStats() {
-        if (!this.state.memberInfo) return null;
-
-        return {
-            totalVotingPower: this.state.memberInfo.votingPower + this.state.memberInfo.delegatedPower,
-            proposalsVoted: this.state.votingHistory.length,
-            participationRate: ((this.state.votingHistory.length / this.state.proposals.length) * 100).toFixed(1),
-            memberSince: this.formatDate(this.state.memberInfo.joinedAt)
-        };
-    }
-
-    calculateQuorum(proposal) {
-        const totalVotes = proposal.forVotes + proposal.againstVotes;
-        const requiredQuorum = 50; // Example: 50 votes required
-        const quorumPercentage = ((totalVotes / requiredQuorum) * 100).toFixed(1);
-        return {
-            current: totalVotes,
-            required: requiredQuorum,
-            percentage: quorumPercentage,
-            met: totalVotes >= requiredQuorum
-        };
-    }
-
-    getTopProposals(limit = 5) {
-        return [...this.state.proposals]
-            .sort((a, b) => (b.forVotes + b.againstVotes) - (a.forVotes + a.againstVotes))
-            .slice(0, limit);
-    }
-
-    getVotingTrends() {
-        const last7Days = Date.now() - 7 * 24 * 60 * 60 * 1000;
-        const recentVotes = this.state.votingHistory.filter(v => v.timestamp >= last7Days);
-        
-        return {
-            totalVotes: recentVotes.length,
-            supportVotes: recentVotes.filter(v => v.support).length,
-            opposeVotes: recentVotes.filter(v => !v.support).length,
-            totalCredits: recentVotes.reduce((sum, v) => sum + v.credits, 0)
-        };
-    }
-
-    validateProposalForm() {
-        const title = document.getElementById('proposal-title').value;
-        const description = document.getElementById('proposal-description').value;
-        const recipient = document.getElementById('proposal-recipient').value;
-        const amount = document.getElementById('proposal-amount').value;
-
-        const errors = [];
-
-        if (!title || title.length < 5) {
-            errors.push('Title must be at least 5 characters');
-        }
-
-        if (!description || description.length < 20) {
-            errors.push('Description must be at least 20 characters');
-        }
-
-        if (recipient && !recipient.match(/^0x[a-fA-F0-9]{40}$/)) {
-            errors.push('Invalid recipient address format');
-        }
-
-        if (amount && parseFloat(amount) > this.state.contractData.treasuryBalance) {
-            errors.push('Amount exceeds treasury balance');
-        }
-
-        return errors;
-    }
-
-    async cancelProposal(proposalId) {
-        const proposal = this.state.proposals.find(p => p.id === proposalId);
-        
-        if (!proposal) {
-            this.showNotification('Proposal not found', 'error');
-            return;
-        }
-
-        if (proposal.proposer !== this.state.account) {
-            this.showNotification('Only the proposer can cancel this proposal', 'error');
-            return;
-        }
-
-        if (proposal.state !== 'Active') {
-            this.showNotification('Only active proposals can be cancelled', 'error');
-            return;
-        }
-
-        this.setLoading(true);
-        this.showNotification('Cancelling proposal...', 'info');
-
-        try {
-            await this.delay(1500);
-
-            this.state.proposals = this.state.proposals.map(p =>
-                p.id === proposalId ? { ...p, state: 'Canceled' } : p
-            );
-
-            this.state.contractData.activeProposals -= 1;
-
-            this.showNotification('Proposal cancelled successfully!', 'success');
-            this.updateUI();
-        } catch (error) {
-            this.showNotification('Failed to cancel proposal', 'error');
-        } finally {
-            this.setLoading(false);
-        }
-    }
-
-    getRecommendedVote(proposal) {
-        // Simple recommendation algorithm
-        const totalVotes = proposal.forVotes + proposal.againstVotes;
-        if (totalVotes === 0) return 'neutral';
-        
-        const supportRatio = proposal.forVotes / totalVotes;
-        
-        if (supportRatio > 0.7) return 'support';
-        if (supportRatio < 0.3) return 'oppose';
-        return 'neutral';
-    }
-
-    searchProposalById(id) {
-        return this.state.proposals.find(p => p.id === parseInt(id));
-    }
-
-    filterProposalsByDateRange(startDate, endDate) {
-        return this.state.proposals.filter(p => {
-            const created = p.createdAt || 0;
-            return created >= startDate && created <= endDate;
-        });
-    }
-
-    calculateVotingPowerUtilization() {
-        if (!this.state.memberInfo || this.state.votingHistory.length === 0) {
-            return { utilized: 0, total: 0, percentage: 0 };
-        }
-
-        const totalPower = this.state.memberInfo.votingPower + this.state.memberInfo.delegatedPower;
-        const utilized = this.state.votingHistory.reduce((sum, v) => sum + v.credits, 0);
-        const percentage = ((utilized / (totalPower * this.state.proposals.length)) * 100).toFixed(1);
-
-        return {
-            utilized,
-            total: totalPower,
-            percentage: Math.min(percentage, 100)
-        };
-    }
-
-    getProposalsByCategory() {
-        const categories = {};
-        this.state.proposals.forEach(p => {
-            const category = p.category || 'Other';
-            if (!categories[category]) {
-                categories[category] = [];
-            }
-            categories[category].push(p);
-        });
-        return categories;
-    }
-
-    async queueProposal(proposalId) {
-        const proposal = this.state.proposals.find(p => p.id === proposalId);
-        
-        if (!proposal || proposal.state !== 'Succeeded') {
-            this.showNotification('Only succeeded proposals can be queued', 'error');
-            return;
-        }
-
-        this.setLoading(true);
-        this.showNotification('Queueing proposal for execution...', 'info');
-
-        try {
-            await this.delay(1500);
-
-            this.state.proposals = this.state.proposals.map(p =>
-                p.id === proposalId ? { ...p, state: 'Queued', queuedAt: Date.now() } : p
-            );
-
-            this.showNotification('Proposal queued successfully! It can be executed after timelock.', 'success');
-            this.updateUI();
-        } catch (error) {
-            this.showNotification('Failed to queue proposal', 'error');
-        } finally {
-            this.setLoading(false);
-        }
-    }
-
-    getProposalOutcome(proposal) {
-        const totalVotes = proposal.forVotes + proposal.againstVotes;
-        if (totalVotes === 0) return 'No votes';
-
-        const supportPercentage = (proposal.forVotes / totalVotes) * 100;
-        
-        if (supportPercentage > 50) {
-            return `Passing (${supportPercentage.toFixed(1)}% support)`;
-        } else if (supportPercentage === 50) {
-            return 'Tied (50% support)';
-        } else {
-            return `Failing (${supportPercentage.toFixed(1)}% support)`;
-        }
-    }
-
-    async batchVote(votes) {
-        // votes is an array of { proposalId, support, credits }
-        this.setLoading(true);
-        this.showNotification(`Casting ${votes.length} votes...`, 'info');
-
-        try {
-            await this.delay(2000);
-
-            votes.forEach(vote => {
-                this.state.proposals = this.state.proposals.map(p => {
-                    if (p.id === vote.proposalId) {
-                        const proposal = this.state.proposals.find(pr => pr.id === vote.proposalId);
-                        
-                        this.state.votingHistory.push({
-                            proposalId: vote.proposalId,
-                            proposalTitle: proposal.title,
-                            support: vote.support,
-                            credits: vote.credits,
-                            timestamp: Date.now()
-                        });
-
-                        return {
-                            ...p,
-                            forVotes: vote.support ? p.forVotes + vote.credits : p.forVotes,
-                            againstVotes: !vote.support ? p.againstVotes + vote.credits : p.againstVotes,
-                            hasVoted: true
-                        };
-                    }
-                    return p;
-                });
-            });
-
-            this.showNotification(`Successfully cast ${votes.length} votes!`, 'success');
-            this.updateUI();
-        } catch (error) {
-            this.showNotification('Failed to cast batch votes', 'error');
-        } finally {
-            this.setLoading(false);
-        }
-    }
-
-    getProposalTimeline(proposalId) {
-        const proposal = this.state.proposals.find(p => p.id === proposalId);
-        if (!proposal) return [];
-
-        const timeline = [
-            {
-                event: 'Proposal Created',
-                timestamp: proposal.createdAt,
-                status: 'completed'
-            }
-        ];
-
-        if (proposal.state === 'Active') {
-            timeline.push({
-                event: 'Voting Period',
-                timestamp: Date.now(),
-                status: 'active'
-            });
-            timeline.push({
-                event: 'Voting Ends',
-                timestamp: proposal.endTime,
-                status: 'pending'
-            });
-        } else if (proposal.state === 'Succeeded' || proposal.state === 'Defeated') {
-            timeline.push({
-                event: 'Voting Ended',
-                timestamp: proposal.endTime,
-                status: 'completed'
-            });
-            timeline.push({
-                event: proposal.state,
-                timestamp: proposal.endTime,
-                status: 'completed'
-            });
-        } else if (proposal.state === 'Executed') {
-            timeline.push({
-                event: 'Voting Ended',
-                timestamp: proposal.endTime,
-                status: 'completed'
-            });
-            timeline.push({
-                event: 'Executed',
-                timestamp: proposal.executedAt || proposal.endTime + 24 * 60 * 60 * 1000,
-                status: 'completed'
-            });
-        }
-
-        return timeline;
-    }
-
-    calculateAverageVoteCredits() {
-        if (this.state.votingHistory.length === 0) return 0;
-        
-        const totalCredits = this.state.votingHistory.reduce((sum, v) => sum + v.credits, 0);
-        return (totalCredits / this.state.votingHistory.length).toFixed(1);
-    }
-
-    getActiveProposalsEndingSoon(hours = 24) {
-        const threshold = Date.now() + hours * 60 * 60 * 1000;
-        return this.state.proposals.filter(p => 
-            p.state === 'Active' && 
-            p.endTime <= threshold && 
-            p.endTime > Date.now()
-        );
-    }
-
-    getMemberRank() {
-        if (!this.state.memberInfo) return null;
-
-        const totalPower = this.state.memberInfo.votingPower + this.state.memberInfo.delegatedPower;
-        
-        // Simulate member rankings
-        const mockRanks = [
-            { address: this.state.account, power: totalPower },
-            { address: '0xabcd...1234', power: 25 },
-            { address: '0xdef0...5678', power: 20 },
-            { address: '0x9abc...def0', power: 18 },
-            { address: '0x1234...5678', power: 15 }
-        ].sort((a, b) => b.power - a.power);
-
-        const rank = mockRanks.findIndex(m => m.address === this.state.account) + 1;
-        
-        return {
-            rank,
-            totalMembers: this.state.contractData.memberCount,
-            percentile: ((1 - (rank / this.state.contractData.memberCount)) * 100).toFixed(1)
-        };
-    }
-
-    generateProposalSummary(proposalId) {
-        const proposal = this.state.proposals.find(p => p.id === proposalId);
-        if (!proposal) return null;
-
-        const totalVotes = proposal.forVotes + proposal.againstVotes;
-        const quorum = this.calculateQuorum(proposal);
-        
-        return {
-            id: proposal.id,
-            title: proposal.title,
-            state: proposal.state,
-            outcome: this.getProposalOutcome(proposal),
-            participation: `${totalVotes} votes`,
-            quorumStatus: quorum.met ? 'Met' : `${quorum.percentage}% of quorum`,
-            timeRemaining: this.formatTimeRemaining(proposal.endTime),
-            fundingRequest: proposal.amount > 0 ? `${proposal.amount} ETH` : 'No funding',
-            category: proposal.category || 'Uncategorized'
-        };
-    }
-
-    async simulateVote(proposalId, support, credits) {
-        // Simulate vote outcome without actually casting it
-        const proposal = this.state.proposals.find(p => p.id === proposalId);
-        if (!proposal) return null;
-
-        const newForVotes = support ? proposal.forVotes + credits : proposal.forVotes;
-        const newAgainstVotes = !support ? proposal.againstVotes + credits : proposal.againstVotes;
-        const newTotal = newForVotes + newAgainstVotes;
-        
-        return {
-            currentOutcome: this.getProposalOutcome(proposal),
-            projectedOutcome: this.getProposalOutcome({
-                ...proposal,
-                forVotes: newForVotes,
-                againstVotes: newAgainstVotes
-            }),
-            supportPercentage: ((newForVotes / newTotal) * 100).toFixed(1),
-            voteImpact: ((credits / newTotal) * 100).toFixed(2)
-        };
-    }
-
-    getNotificationHistory() {
-        return this.state.notifications.slice(0, 10); // Last 10 notifications
-    }
-
-    addNotification(type, title, message) {
-        this.state.notifications.unshift({
-            id: Date.now(),
-            type,
-            title,
-            message,
-            timestamp: Date.now(),
-            read: false
-        });
-
-        // Keep only last 50 notifications
-        if (this.state.notifications.length > 50) {
-            this.state.notifications = this.state.notifications.slice(0, 50);
-        }
-    }
-
-    markNotificationAsRead(notificationId) {
-        this.state.notifications = this.state.notifications.map(n =>
-            n.id === notificationId ? { ...n, read: true } : n
-        );
-        this.updateUI();
-    }
-
-    clearAllNotifications() {
-        this.state.notifications = [];
-        this.showNotification('All notifications cleared', 'success');
-        this.updateUI();
-    }
-
-    getUnreadNotificationCount() {
-        return this.state.notifications.filter(n => !n.read).length;
-    }
-
-    checkProposalDeadlines() {
-        const endingSoon = this.getActiveProposalsEndingSoon(24);
-        
-        endingSoon.forEach(proposal => {
-            if (!proposal.hasVoted) {
-                this.addNotification(
-                    'warning',
-                    'Proposal Ending Soon',
-                    `"${proposal.title}" ends in ${this.formatTimeRemaining(proposal.endTime)}`
-                );
-            }
-        });
-    }
-
-    async autoDelegate(targetAddress, conditions = {}) {
-        // Auto-delegate based on conditions
-        const {
-            minVotingPower = 0,
-            maxActiveProposals = null,
-            autoRenew = false
-        } = conditions;
-
-        if (!this.state.memberInfo) {
-            this.showNotification('Must be a member to auto-delegate', 'error');
-            return;
-        }
-
-        this.setLoading(true);
-        this.showNotification('Setting up auto-delegation...', 'info');
-
-        try {
-            await this.delay(1500);
-
-            this.state.memberInfo.delegate = targetAddress;
-            this.state.memberInfo.autoDelegation = {
-                enabled: true,
-                conditions,
-                setupAt: Date.now()
-            };
-
-            this.showNotification('Auto-delegation configured successfully!', 'success');
-            this.updateUI();
-        } catch (error) {
-            this.showNotification('Failed to setup auto-delegation', 'error');
-        } finally {
-            this.setLoading(false);
-        }
-    }
-
-    getTreasuryStats() {
-        const totalRequested = this.state.proposals
-            .filter(p => p.state === 'Active' || p.state === 'Succeeded')
-            .reduce((sum, p) => sum + p.amount, 0);
-
-        const totalExecuted = this.state.proposals
-            .filter(p => p.state === 'Executed')
-            .reduce((sum, p) => sum + p.amount, 0);
-
-        return {
-            currentBalance: this.state.contractData.treasuryBalance,
-            pendingAllocations: totalRequested,
-            totalDisbursed: totalExecuted,
-            availableBalance: this.state.contractData.treasuryBalance - totalRequested
-        };
-    }
-
-    predictProposalOutcome(proposalId) {
-        const proposal = this.state.proposals.find(p => p.id === proposalId);
-        if (!proposal || proposal.state !== 'Active') return null;
-
-        const totalVotes = proposal.forVotes + proposal.againstVotes;
-        const timeRemaining = proposal.endTime - Date.now();
-        const timeElapsed = Date.now() - proposal.createdAt;
-        const totalTime = proposal.endTime - proposal.createdAt;
-        const progressPercentage = (timeElapsed / totalTime) * 100;
-
-        // Simple prediction based on current voting trend
-        const currentSupportRate = totalVotes > 0 ? proposal.forVotes / totalVotes : 0.5;
-        
-        let prediction = 'Uncertain';
-        let confidence = 0;
-
-        if (progressPercentage > 75) {
-            // Late stage - high confidence
-            if (currentSupportRate > 0.6) {
-                prediction = 'Likely to Pass';
-                confidence = 85;
-            } else if (currentSupportRate < 0.4) {
-                prediction = 'Likely to Fail';
-                confidence = 85;
-            } else {
-                prediction = 'Too Close to Call';
-                confidence = 45;
-            }
-        } else if (progressPercentage > 50) {
-            // Mid stage - medium confidence
-            if (currentSupportRate > 0.65) {
-                prediction = 'Trending to Pass';
-                confidence = 65;
-            } else if (currentSupportRate < 0.35) {
-                prediction = 'Trending to Fail';
-                confidence = 65;
-            }
-        } else {
-            // Early stage - low confidence
-            confidence = 30;
-            prediction = 'Too Early to Predict';
-        }
-
-        return {
-            prediction,
-            confidence,
-            currentSupport: (currentSupportRate * 100).toFixed(1),
-            votingProgress: progressPercentage.toFixed(1),
-            estimatedFinalVotes: Math.round(totalVotes * (100 / progressPercentage))
-        };
-    }    constructor() {
-        this.state = {
-            account: '',
-            isConnected: false,
-            memberInfo: null,
-            proposals: [],
-            activeTab: 'dashboard',
-            loading: false,
-            contractData: {
-                memberCount: 24,
-                totalProposals: 8,
-                treasuryBalance: 15.67,
-                activeProposals: 3
+    // Utility Methods
+    async apiCall(endpoint, data = null) {
+        const config = {
+            method: data ? 'POST' : 'GET',
+            headers: {
+                'Content-Type': 'application/json',
             },
-            filters: {
-                status: 'all',
-                sortBy: 'newest',
-                searchQuery: ''
-            },
-            votingHistory: [],
-            notifications: [],
-            darkMode: false
         };
+
+        if (data) {
+            config.body = JSON.stringify(data);
+        }
+
+        const response = await fetch(endpoint, config);
+        
+        if (!response.ok) {
+            throw new Error(`API call failed: ${response.statusText}`);
+        }
+
+        return await response.json();
+    }
+
+    showNotification(message, type = 'info') {
+        // Implementation for showing notifications
+        const notification = document.createElement('div');
+        notification.className = `fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg transition-transform transform translate-x-full ${this.getNotificationClass(type)}`;
+        notification.innerHTML = `
+            <div class="flex items-center">
+                <span>${message}</span>
+                <button class="ml-4" onclick="this.parentElement.parentElement.remove()">×</button>
+            </div>
+        `;
+        
+        document.body.appendChild(notification);
+        
+        // Animate in
+        setTimeout(() => notification.classList.remove('translate-x-full'), 100);
+        
+        // Auto remove after 5 seconds
+        setTimeout(() => {
+            if (notification.parentElement) {
+                notification.remove();
+            }
+        }, 5000);
+    }
+
+    getNotificationClass(type) {
+        const classes = {
+            success: 'bg-green-500 text-white',
+            error: 'bg-red-500 text-white',
+            info: 'bg-blue-500 text-white',
+            warning: 'bg-yellow-500 text-white'
+        };
+        return classes[type] || classes.info;
+    }
+
+    showLoading(buttonId, loadingText) {
+        const button = document.getElementById(buttonId);
+        if (button) {
+            button.disabled = true;
+            button.innerHTML = `
+                <span class="flex items-center justify-center">
+                    <svg class="animate-spin -ml-1 mr-3 h-5 w-5" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    ${loadingText}
+                </span>
+            `;
+        }
+    }
+
+    hideLoading(buttonId, originalText) {
+        const button = document.getElementById(buttonId);
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = originalText;
+        }
+    }
+
+    // Event Listeners Setup
+    setupEventListeners() {
+        // Wallet connection
+        document.getElementById('btn-connect-wallet').addEventListener('click', () => this.connectWallet());
+        
+        // Network switching
+        document.getElementById('switch-network').addEventListener('click', () => this.switchNetwork());
+        
+        // DAO membership
+        document.getElementById('btn-join-dao').addEventListener('click', () => this.joinDAO());
+        
+        // Tab navigation
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => this.switchTab(e.target.id));
+        });
+
+        // Theme toggle
+        document.getElementById('theme-toggle').addEventListener('click', () => this.toggleTheme());
+
+        // Window events
+        window.addEventListener('resize', () => this.handleResize());
+        
+        // Ethereum events
+        if (window.ethereum) {
+            window.ethereum.on('accountsChanged', (accounts) => {
+                if (accounts.length > 0) {
+                    this.handleWalletConnected(accounts[0]);
+                } else {
+                    this.handleWalletDisconnected();
+                }
+            });
+
+            window.ethereum.on('chainChanged', (chainId) => {
+                window.location.reload();
+            });
+        }
+    }
+
+    // UI Update Methods
+    updateWalletUI() {
+        const connectBtn = document.getElementById('btn-connect-wallet');
+        const connectedDiv = document.getElementById('connected-wallet');
+        const walletAddress = document.getElementById('wallet-address');
+
+        if (this.walletAddress) {
+            connectBtn.classList.add('hidden');
+            connectedDiv.classList.remove('hidden');
+            walletAddress.textContent = `${this.walletAddress.substring(0, 6)}...${this.walletAddress.substring(this.walletAddress.length - 4)}`;
+        } else {
+            connectBtn.classList.remove('hidden');
+            connectedDiv.classList.add('hidden');
+        }
+    }
+
+    updateMembershipUI() {
+        const joinSection = document.getElementById('join-dao-section');
+        const mainContent = document.getElementById('main-content');
+
+        if (this.isMember) {
+            joinSection.classList.add('hidden');
+            mainContent.classList.remove('hidden');
+        } else {
+            joinSection.classList.remove('hidden');
+            mainContent.classList.add('hidden');
+        }
+    }
+
+    showNetworkWarning() {
+        const networkStatus = document.getElementById('network-status');
+        const networkMessage = document.getElementById('network-message');
+        
+        networkMessage.textContent = `Connected to ${this.currentNetwork}. Please switch to Core Testnet for full functionality.`;
+        networkStatus.classList.remove('hidden');
+    }
+
+    hideNetworkWarning() {
+        document.getElementById('network-status').classList.add('hidden');
+    }
+
+    switchTab(tabId) {
+        // Update tab buttons
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.id === tabId);
+        });
+
+        // Update tab content
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.toggle('active', content.id === tabId.replace('tab-', '') + '-content');
+        });
+    }
+
+    toggleTheme() {
+        const isDark = document.documentElement.classList.toggle('dark');
+        document.body.setAttribute('data-theme', isDark ? 'dark' : 'light');
+        localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    }
+
+    showOnboardingTour() {
+        // Implementation for interactive onboarding tour
+        this.showNotification('Welcome to the DAO! Take a tour to learn about features.', 'info');
+    }
+
+    // Mock methods (replace with actual implementations)
+    async mockTransaction(method, params) {
+        return new Promise((resolve) => {
+            setTimeout(() => {
+                resolve(`0x${Math.random().toString(16).substr(2)}`);
+            }, 2000);
+        });
+    }
+
+    async getVotingPower() {
+        // Mock implementation
+        return 100;
+    }
+
+    downloadCSV(data, filename) {
+        const blob = new Blob([data], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        window.URL.revokeObjectURL(url);
+    }
+
+    downloadJSON(data, filename) {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        window.URL.revokeObjectURL(url);
+    }
+
+    handleResize() {
+        // Handle window resize for responsive charts
+        Object.values(this.charts).forEach(chart => {
+            if (chart) chart.resize();
+        });
+    }
+
+    handleWalletDisconnected() {
+        this.walletAddress = null;
+        this.isMember = false;
+        this.updateWalletUI();
+        this.updateMembershipUI();
+        this.showNotification('Wallet disconnected', 'info');
+    }
+
+    async loadInitialData() {
+        if (this.isMember) {
+            await this.loadProposals();
+            await this.loadMemberData();
+            await this.loadAnalytics();
+        }
+    }
+
+    async loadProposals() {
+        // Implementation for loading proposals
+    }
+
+    async loadMemberData() {
+        // Implementation for loading member-specific data
+    }
+
+    async loadAnalytics() {
+        // Implementation for loading analytics data
+    }
+}
+
+// Initialize the application
+document.addEventListener('DOMContentLoaded', () => {
+    window.daoApp = new AdvancedDAO();
+});
+
+// Utility functions for accessibility panel
+document.getElementById('accessibility-toggle')?.addEventListener('click', function() {
+    const panel = document.getElementById('accessibility-panel');
+    panel.classList.toggle('hidden');
+});
+
+// Close accessibility panel when clicking outside
+document.addEventListener('click', function(event) {
+    const panel = document.getElementById('accessibility-panel');
+    const toggle = document.getElementById('accessibility-toggle');
+    
+    if (!panel.contains(event.target) && !toggle.contains(event.target)) {
+        panel.classList.add('hidden');
+    }
+});
+
+// Accessibility options handlers
+document.getElementById('high-contrast')?.addEventListener('change', function(e) {
+    document.body.classList.toggle('high-contrast', e.target.checked);
+    localStorage.setItem('high-contrast', e.target.checked);
+});
+
+document.getElementById('large-text')?.addEventListener('change', function(e) {
+    document.body.classList.toggle('large-text', e.target.checked);
+    localStorage.setItem('large-text', e.target.checked);
+});
+
+document.getElementById('reduce-motion')?.addEventListener('change', function(e) {
+    document.body.classList.toggle('reduce-motion', e.target.checked);
+    localStorage.setItem('reduce-motion', e.target.checked);
+});
