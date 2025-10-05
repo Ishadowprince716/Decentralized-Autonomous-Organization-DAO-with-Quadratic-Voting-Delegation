@@ -282,4 +282,4 @@
     "compliance:report": "node scripts/generate-compliance-report.js",
     "gas:optimize": "node scripts/gas-optimization-suggestions.js",
     "gas:compare": "node scripts/compare-gas-costs.js"
-  },
+  }
