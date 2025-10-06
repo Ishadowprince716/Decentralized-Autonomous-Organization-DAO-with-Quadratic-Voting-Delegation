@@ -3,160 +3,466 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Advanced DAO with Quadratic Voting and Delegation System">
-    <meta name="theme-color" content="#2563eb">
-    <title>Advanced DAO - Quadratic Voting & Delegation</title>
+    <title>Quadratic DAO - Democratic Governance</title>
     
-    <!-- Tailwind CSS -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
-    <!-- Chart.js for Analytics -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- MathJax for Quadratic Formulas -->
-    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
-    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <!-- Security Headers -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com;
+        style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com;
+        font-src 'self' https://fonts.gstatic.com;
+        img-src 'self' data: https:;
+        connect-src 'self' https://rpc.test2.btcs.network https://scan.test2.btcs.network;
+        frame-src 'none';
+        object-src 'none';
+        base-uri 'self';
+    ">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
     
-    <link rel="stylesheet" href="styles.css">
+    <!-- Preload Critical Resources -->
+    <link rel="preload" href="./styles.css" as="style">
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" as="style">
+    
+    <!-- Stylesheets -->
+    <link rel="stylesheet" href="./styles.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous">
+    
+    <!-- Web App Manifest -->
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#4a90e2">
+    
+    <!-- Critical JavaScript Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js" defer></script>
 </head>
-
-<body class="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
-    <!-- Skip to main content -->
-    <a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 bg-blue-600 text-white px-4 py-2 rounded-lg z-50">
-        Skip to main content
-    </a>
+<body>
+    <!-- Skip Navigation for Accessibility -->
+    <a href="#main-content" class="skip-nav">Skip to main content</a>
     
-    <!-- Theme Toggle -->
-    <button id="theme-toggle" class="fixed top-4 right-4 z-50 p-3 bg-white dark:bg-gray-800 rounded-full shadow-lg">
-        <svg id="theme-icon-light" class="w-5 h-5 text-gray-600 dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
-        </svg>
-        <svg id="theme-icon-dark" class="w-5 h-5 text-gray-400 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
-        </svg>
-    </button>
-
-    <!-- Accessibility Panel -->
-    <div id="accessibility-panel" class="fixed top-16 right-4 z-40 bg-white dark:bg-gray-800 rounded-lg shadow-xl p-4 w-64 hidden">
-        <h3 class="font-semibold mb-3">Accessibility Options</h3>
-        <div class="space-y-3">
-            <label class="flex items-center cursor-pointer">
-                <input type="checkbox" id="high-contrast" class="mr-2">
-                <span>High Contrast</span>
-            </label>
-            <label class="flex items-center cursor-pointer">
-                <input type="checkbox" id="large-text" class="mr-2">
-                <span>Large Text</span>
-            </label>
-            <label class="flex items-center cursor-pointer">
-                <input type="checkbox" id="reduce-motion" class="mr-2">
-                <span>Reduce Motion</span>
-            </label>
-        </div>
-    </div>
-
-    <div id="root" class="container mx-auto px-4 py-8 max-w-7xl">
-        <!-- Header -->
-        <header class="mb-8">
-            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h1 class="text-4xl font-extrabold mb-2">Advanced DAO</h1>
-                    <p class="text-gray-600 dark:text-gray-400">Quadratic Voting & Delegation System</p>
-                </div>
-                
-                <div id="wallet-section">
-                    <button id="btn-connect-wallet" class="btn-primary">
-                        Connect Wallet
-                    </button>
-                    
-                    <div id="connected-wallet" class="text-right hidden">
-                        <p class="text-sm text-gray-600 dark:text-gray-400">Connected as:</p>
-                        <p id="wallet-address" class="font-mono text-sm bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded"></p>
-                    </div>
-                </div>
-            </div>
-        </header>
-
-        <!-- Network Status -->
-        <div id="network-status" class="hidden mb-4 p-3 rounded-lg bg-yellow-100 dark:bg-yellow-900 border border-yellow-400">
-            <div class="flex items-center">
-                <svg class="w-5 h-5 mr-2 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-                </svg>
-                <span id="network-message" class="text-yellow-800 dark:text-yellow-200"></span>
-                <button id="switch-network" class="ml-auto px-3 py-1 bg-yellow-600 text-white rounded text-sm">Switch Network</button>
+    <!-- No JavaScript Fallback -->
+    <noscript>
+        <div class="noscript-warning" role="alert">
+            <div class="warning-content">
+                <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+                <h2>JavaScript Required</h2>
+                <p>This DAO interface requires JavaScript to function properly. Please enable JavaScript in your browser to participate in governance.</p>
             </div>
         </div>
+    </noscript>
 
-        <!-- Main Application -->
-        <div id="app-content">
-            <!-- Loading Skeleton -->
-            <div id="loading-skeleton" class="hidden space-y-4">
-                <!-- Skeleton content -->
+    <!-- Navigation Header -->
+    <nav class="navbar" role="navigation" aria-label="Main navigation">
+        <div class="nav-container">
+            <div class="nav-logo">
+                <i class="fas fa-vote-yea" aria-hidden="true"></i>
+                <span>Quadratic DAO</span>
             </div>
+            <div class="nav-menu" role="menubar">
+                <a href="#governance" class="nav-link" role="menuitem" aria-label="Governance section">Governance</a>
+                <a href="#proposals" class="nav-link" role="menuitem" aria-label="Proposals section">Proposals</a>
+                <a href="#treasury" class="nav-link" role="menuitem" aria-label="Treasury section">Treasury</a>
+                <a href="#analytics" class="nav-link" role="menuitem" aria-label="Analytics section">Analytics</a>
+            </div>
+            <div class="nav-actions">
+                <button id="connectWallet" class="btn btn-primary" type="button" aria-describedby="wallet-help">
+                    <i class="fas fa-wallet" aria-hidden="true"></i>
+                    <span>Connect Wallet</span>
+                </button>
+                <div id="wallet-help" class="sr-only">Connect your MetaMask wallet to participate in DAO governance</div>
+            </div>
+        </div>
+    </nav>
 
-            <!-- Join DAO Section -->
-            <section id="join-dao-section" class="hidden mb-8 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-8 text-center">
-                <!-- Join DAO content -->
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" role="complementary" aria-label="DAO Information">
+            <section class="sidebar-section" aria-labelledby="member-status-title">
+                <h3 id="member-status-title">
+                    <i class="fas fa-user-circle" aria-hidden="true"></i> 
+                    Member Status
+                </h3>
+                <div id="memberInfo" class="member-info" role="status" aria-live="polite">
+                    <p class="status-text">Wallet not connected</p>
+                </div>
             </section>
 
-            <!-- Main DAO Interface -->
-            <main id="main-content" class="hidden">
-                <!-- Navigation Tabs -->
-                <nav class="mb-8">
-                    <div class="flex space-x-1 bg-white dark:bg-gray-800 p-1 rounded-xl shadow-lg">
-                        <button id="tab-dashboard" class="tab-btn active">Dashboard</button>
-                        <button id="tab-proposals" class="tab-btn">Proposals</button>
-                        <button id="tab-create" class="tab-btn">Create</button>
-                        <button id="tab-delegation" class="tab-btn">Delegation</button>
-                        <button id="tab-analytics" class="tab-btn">Analytics</button>
-                        <button id="tab-forum" class="tab-btn">Forum</button>
-                    </div>
-                </nav>
+            <section class="sidebar-section" aria-labelledby="voting-power-title">
+                <h3 id="voting-power-title">
+                    <i class="fas fa-coins" aria-hidden="true"></i> 
+                    Voting Power
+                </h3>
+                <div id="votingPowerDisplay" class="voting-power" role="status" aria-live="polite">
+                    <div class="power-display" aria-label="Available credits">0</div>
+                    <p class="power-label">Credits Available</p>
+                </div>
+            </section>
 
-                <!-- Dashboard Tab -->
-                <section id="dashboard-content" class="tab-content active">
-                    <!-- Stats Cards -->
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                        <!-- Stat cards -->
-                    </div>
+            <section class="sidebar-section" aria-labelledby="delegation-title">
+                <h3 id="delegation-title">
+                    <i class="fas fa-handshake" aria-hidden="true"></i> 
+                    Delegation
+                </h3>
+                <div id="delegationInfo" class="delegation-info">
+                    <p id="delegationStatus" role="status" aria-live="polite">No active delegation</p>
+                    <button id="manageDelegation" class="btn btn-outline" type="button" aria-describedby="delegation-help">
+                        Manage Delegation
+                    </button>
+                    <div id="delegation-help" class="sr-only">Open delegation management modal</div>
+                </div>
+            </section>
 
-                    <!-- Analytics Charts -->
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-                            <h3 class="text-xl font-semibold mb-4">Voting Participation</h3>
-                            <canvas id="participation-chart"></canvas>
+            <section class="sidebar-section" aria-labelledby="stats-title">
+                <h3 id="stats-title">
+                    <i class="fas fa-chart-line" aria-hidden="true"></i> 
+                    Quick Stats
+                </h3>
+                <div class="quick-stats" role="group" aria-label="DAO Statistics">
+                    <div class="stat-item">
+                        <span class="stat-value" id="totalMembers" aria-label="Total members">0</span>
+                        <span class="stat-label">Members</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="activeProposals" aria-label="Active proposals">0</span>
+                        <span class="stat-label">Active Proposals</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="totalVotes" aria-label="Total votes cast">0</span>
+                        <span class="stat-label">Total Votes</span>
+                    </div>
+                </div>
+            </section>
+        </aside>
+
+        <!-- Main Content -->
+        <main id="main-content" class="main-content" role="main">
+            <!-- Hero Section -->
+            <section class="hero-section" role="banner" aria-labelledby="hero-title">
+                <div class="hero-content">
+                    <h1 id="hero-title">Democratic Governance with Quadratic Voting</h1>
+                    <p class="hero-description">
+                        Participate in fair, transparent governance where your voice matters. 
+                        Join our DAO and help shape the future of decentralized decision-making 
+                        through quadratic voting and delegation mechanisms.
+                    </p>
+                    <div class="hero-actions" role="group" aria-label="Primary actions">
+                        <button id="joinDAO" class="btn btn-primary" type="button" disabled aria-describedby="join-help">
+                            <i class="fas fa-users" aria-hidden="true"></i>
+                            <span>Join DAO (0.1 ETH)</span>
+                        </button>
+                        <div id="join-help" class="sr-only">Pay membership fee to join the DAO and gain voting rights</div>
+                        
+                        <button id="createProposal" class="btn btn-secondary" type="button" disabled aria-describedby="create-help">
+                            <i class="fas fa-plus-circle" aria-hidden="true"></i>
+                            <span>Create Proposal</span>
+                        </button>
+                        <div id="create-help" class="sr-only">Create a new governance proposal for DAO members to vote on</div>
+                    </div>
+                </div>
+                <div class="hero-visual" aria-label="Governance visualization">
+                    <div class="governance-chart">
+                        <canvas id="governanceChart" aria-label="Governance participation chart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Proposal Creation Form -->
+            <section id="proposalCreation" class="section-card" style="display: none;" aria-labelledby="create-proposal-title">
+                <h2 id="create-proposal-title">
+                    <i class="fas fa-edit" aria-hidden="true"></i> 
+                    Create New Proposal
+                </h2>
+                <form id="proposalForm" class="proposal-form" novalidate>
+                    <div class="form-group">
+                        <label for="proposalTitle">Title <span class="required" aria-label="required">*</span></label>
+                        <input 
+                            type="text" 
+                            id="proposalTitle" 
+                            name="title"
+                            placeholder="Enter proposal title" 
+                            required 
+                            minlength="3" 
+                            maxlength="100"
+                            aria-describedby="title-help title-error"
+                            autocomplete="off">
+                        <div id="title-help" class="help-text">Provide a clear, descriptive title for your proposal</div>
+                        <div id="title-error" class="error-message" role="alert" aria-live="polite"></div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="proposalDescription">Description <span class="required" aria-label="required">*</span></label>
+                        <textarea 
+                            id="proposalDescription" 
+                            name="description"
+                            rows="4" 
+                            placeholder="Describe your proposal in detail" 
+                            required 
+                            minlength="10" 
+                            maxlength="2000"
+                            aria-describedby="description-help description-error"></textarea>
+                        <div id="description-help" class="help-text">Explain your proposal's purpose, implementation, and expected outcomes</div>
+                        <div id="description-error" class="error-message" role="alert" aria-live="polite"></div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="proposalCategory">Category <span class="required" aria-label="required">*</span></label>
+                        <select id="proposalCategory" name="category" required aria-describedby="category-help category-error">
+                            <option value="">Select category</option>
+                            <option value="governance">Governance</option>
+                            <option value="treasury">Treasury</option>
+                            <option value="technical">Technical</option>
+                            <option value="community">Community</option>
+                        </select>
+                        <div id="category-help" class="help-text">Choose the most appropriate category for your proposal</div>
+                        <div id="category-error" class="error-message" role="alert" aria-live="polite"></div>
+                    </div>
+                    
+                    <div class="form-actions" role="group" aria-label="Form actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-paper-plane" aria-hidden="true"></i>
+                            <span>Submit Proposal</span>
+                        </button>
+                        <button type="button" id="cancelProposal" class="btn btn-outline">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Proposals List -->
+            <section class="section-card" aria-labelledby="proposals-title">
+                <div class="section-header">
+                    <h2 id="proposals-title">
+                        <i class="fas fa-vote-yea" aria-hidden="true"></i> 
+                        Active Proposals
+                    </h2>
+                    <div class="section-controls">
+                        <label for="proposalFilter" class="sr-only">Filter proposals</label>
+                        <select id="proposalFilter" class="filter-select" aria-label="Filter proposals by status">
+                            <option value="all">All Proposals</option>
+                            <option value="active">Active</option>
+                            <option value="pending">Pending</option>
+                            <option value="executed">Executed</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="proposalsList" class="proposals-grid" role="region" aria-label="Proposals list" aria-live="polite">
+                    <div class="empty-state">
+                        <i class="fas fa-inbox" aria-hidden="true"></i>
+                        <h3>No proposals yet</h3>
+                        <p>Be the first to create a proposal and start the governance process!</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Voting Interface -->
+            <section id="votingSection" class="section-card" style="display: none;" aria-labelledby="voting-title">
+                <h2 id="voting-title">
+                    <i class="fas fa-poll" aria-hidden="true"></i> 
+                    Cast Your Vote
+                </h2>
+                <div class="voting-interface">
+                    <div class="proposal-details" aria-labelledby="voting-proposal-title">
+                        <h3 id="votingProposalTitle">Proposal Title</h3>
+                        <p id="votingProposalDescription">Proposal description will appear here.</p>
+                    </div>
+                    
+                    <form id="votingForm" class="voting-controls">
+                        <fieldset class="vote-support" aria-labelledby="vote-direction-legend">
+                            <legend id="vote-direction-legend">Vote Direction</legend>
+                            <label class="vote-option-label">
+                                <input type="radio" name="voteType" value="for" checked aria-describedby="vote-for-help">
+                                <span class="vote-option for">
+                                    <i class="fas fa-thumbs-up" aria-hidden="true"></i>
+                                    Vote For
+                                </span>
+                            </label>
+                            <div id="vote-for-help" class="sr-only">Vote in support of this proposal</div>
+                            
+                            <label class="vote-option-label">
+                                <input type="radio" name="voteType" value="against" aria-describedby="vote-against-help">
+                                <span class="vote-option against">
+                                    <i class="fas fa-thumbs-down" aria-hidden="true"></i>
+                                    Vote Against
+                                </span>
+                            </label>
+                            <div id="vote-against-help" class="sr-only">Vote against this proposal</div>
+                        </fieldset>
+                        
+                        <div class="credits-selection">
+                            <label for="voteCredits">Credits to Spend</label>
+                            <div class="credits-input">
+                                <input 
+                                    type="range" 
+                                    id="voteCredits" 
+                                    name="credits"
+                                    min="1" 
+                                    max="100" 
+                                    value="1" 
+                                    aria-describedby="credits-info"
+                                    aria-label="Number of credits to spend on vote">
+                                <output id="creditsDisplay" for="voteCredits" aria-label="Selected credits">1</output>
+                            </div>
+                            <div id="credits-info" class="credits-info" aria-live="polite">
+                                <span>Voting Power: <strong id="votingPowerCalc" aria-label="Calculated voting power">1</strong></span>
+                                <span>Quadratic Cost: <strong id="votingCost" aria-label="Quadratic cost">1</strong> credits</span>
+                            </div>
                         </div>
-                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-                            <h3 class="text-xl font-semibold mb-4">Proposal Success Rate</h3>
-                            <canvas id="success-chart"></canvas>
+                        
+                        <div class="delegation-option">
+                            <label>
+                                <input type="checkbox" id="delegateVote" aria-describedby="delegate-help">
+                                Delegate this vote
+                            </label>
+                            <div id="delegate-help" class="sr-only">Delegate your vote to a trusted representative</div>
+                            <select id="delegateSelect" disabled aria-label="Select delegate">
+                                <option value="">Select delegate</option>
+                            </select>
+                        </div>
+                        
+                        <div class="voting-actions" role="group" aria-label="Voting actions">
+                            <button type="submit" id="castVote" class="btn btn-primary">
+                                <i class="fas fa-vote-yea" aria-hidden="true"></i>
+                                <span>Cast Vote</span>
+                            </button>
+                            <button type="button" id="cancelVote" class="btn btn-outline">
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Analytics Dashboard -->
+            <section class="section-card" aria-labelledby="analytics-title">
+                <h2 id="analytics-title">
+                    <i class="fas fa-chart-bar" aria-hidden="true"></i> 
+                    Governance Analytics
+                </h2>
+                <div class="analytics-grid">
+                    <div class="analytics-card" role="group" aria-labelledby="participation-title">
+                        <h3 id="participation-title">Participation Rate</h3>
+                        <div class="metric-display">
+                            <span class="metric-value" id="participationRate" aria-label="Current participation rate">0%</span>
+                            <canvas id="participationChart" aria-label="Participation trends chart"></canvas>
                         </div>
                     </div>
+                    
+                    <div class="analytics-card" role="group" aria-labelledby="distribution-title">
+                        <h3 id="distribution-title">Vote Distribution</h3>
+                        <canvas id="voteDistributionChart" aria-label="Vote distribution across proposals"></canvas>
+                    </div>
+                    
+                    <div class="analytics-card" role="group" aria-labelledby="delegation-network-title">
+                        <h3 id="delegation-network-title">Delegation Network</h3>
+                        <div class="delegation-stats">
+                            <div class="stat">
+                                <span class="label">Active Delegates</span>
+                                <span class="value" id="activeDelegates" aria-label="Number of active delegates">0</span>
+                            </div>
+                            <div class="stat">
+                                <span class="label">Delegated Power</span>
+                                <span class="value" id="delegatedPower" aria-label="Percentage of delegated voting power">0%</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="analytics-card" role="group" aria-labelledby="treasury-title">
+                        <h3 id="treasury-title">Treasury Overview</h3>
+                        <div class="treasury-stats">
+                            <div class="stat">
+                                <span class="label">Total Balance</span>
+                                <span class="value" id="treasuryBalance" aria-label="Current treasury balance">0 ETH</span>
+                            </div>
+                            <div class="stat">
+                                <span class="label">Proposals Funded</span>
+                                <span class="value" id="proposalsFunded" aria-label="Number of funded proposals">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
 
-                    <!-- Member Profile -->
-                    <section class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 mb-6">
-                        <!-- Profile content -->
-                    </section>
-
-                    <!-- Recent Activity -->
-                    <section class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-                        <h3 class="text-xl font-semibold mb-4">Recent Activity</h3>
-                        <div id="recent-activity" class="space-y-3"></div>
-                    </section>
-                </section>
-
-                <!-- Other tabs... -->
-            </main>
+    <!-- Delegation Modal -->
+    <div id="delegationModal" class="modal" role="dialog" aria-labelledby="delegation-modal-title" aria-hidden="true">
+        <div class="modal-overlay" data-close-modal></div>
+        <div class="modal-content" role="document">
+            <header class="modal-header">
+                <h3 id="delegation-modal-title">Manage Delegation</h3>
+                <button class="modal-close" type="button" aria-label="Close modal" data-close-modal>
+                    <i class="fas fa-times" aria-hidden="true"></i>
+                </button>
+            </header>
+            <div class="modal-body">
+                <form id="delegationForm" class="delegation-form">
+                    <div class="form-group">
+                        <label for="delegateAddress">Delegate Address</label>
+                        <input 
+                            type="text" 
+                            id="delegateAddress" 
+                            name="address"
+                            placeholder="0x..." 
+                            pattern="^0x[a-fA-F0-9]{40}$"
+                            aria-describedby="address-help address-error"
+                            autocomplete="off">
+                        <div id="address-help" class="help-text">
+                            Enter a valid Ethereum address (42 characters starting with 0x)
+                        </div>
+                        <div id="address-error" class="error-message" role="alert" aria-live="polite"></div>
+                    </div>
+                    
+                    <div class="current-delegation">
+                        <h4>Current Delegation</h4>
+                        <p id="currentDelegate" aria-live="polite">None</p>
+                    </div>
+                    
+                    <div class="modal-actions" role="group" aria-label="Delegation actions">
+                        <button type="submit" id="setDelegate" class="btn btn-primary">
+                            Set Delegate
+                        </button>
+                        <button type="button" id="revokeDelegate" class="btn btn-outline">
+                            Revoke Delegation
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 
-    <!-- Modals -->
-    <div id="proposal-detail-modal" class="modal hidden">
-        <!-- Modal content -->
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;" role="status" aria-live="assertive" aria-label="Loading">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+            <p id="loadingMessage">Processing transaction...</p>
+        </div>
     </div>
 
-    <div id="simulation-modal" class="modal hidden">
-        <!-- Simulation content -->
-    </div>
+    <!-- Toast Notifications Container -->
+    <div id="toastContainer" class="toast-container" role="region" aria-label="Notifications" aria-live="polite"></div>
 
-    <script src="app.js"></script>
+    <!-- Application Scripts -->
+    <script src="./js/utils/constants.js" defer></script>
+    <script src="./js/utils/validators.js" defer></script>
+    <script src="./js/services/web3-manager.js" defer></script>
+    <script src="./js/services/contract-manager.js" defer></script>
+    <script src="./js/services/ui-manager.js" defer></script>
+    <script src="./js/services/chart-manager.js" defer></script>
+    <script src="./js/app.js" defer></script>
+
+    <!-- Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(registration => console.log('SW registered'))
+                    .catch(registrationError => console.log('SW registration failed'));
+            });
+        }
+    </script>
 </body>
 </html>
