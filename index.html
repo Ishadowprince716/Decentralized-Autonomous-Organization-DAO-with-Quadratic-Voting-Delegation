@@ -12,7 +12,7 @@
         style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com;
         font-src 'self' https://fonts.gstatic.com;
         img-src 'self' data: https:;
-        connect-src 'self' https://rpc.test2.btcs.network https://scan.test2.btcs.network;
+        connect-src 'self' https://rpc.test2.btcs.network https://scan.test2.btcs.network wss://;
         frame-src 'none';
         object-src 'none';
         base-uri 'self';
@@ -33,14 +33,479 @@
     <!-- Web App Manifest -->
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#4a90e2">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     
     <!-- Critical JavaScript Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js" defer></script>
+    
+    <!-- Enhanced Theme Styles -->
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --secondary-color: #f5f7fa;
+            --text-primary: #2c3e50;
+            --text-secondary: #7f8c8d;
+            --background: #ffffff;
+            --surface: #f8f9fa;
+            --border: #e9ecef;
+            --success: #27ae60;
+            --warning: #f39c12;
+            --danger: #e74c3c;
+            --shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        [data-theme="dark"] {
+            --primary-color: #5dade2;
+            --secondary-color: #2c3e50;
+            --text-primary: #ecf0f1;
+            --text-secondary: #bdc3c7;
+            --background: #1a1a1a;
+            --surface: #2c3e50;
+            --border: #34495e;
+            --shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        
+        [data-theme="high-contrast"] {
+            --primary-color: #000000;
+            --secondary-color: #ffffff;
+            --text-primary: #000000;
+            --text-secondary: #000000;
+            --background: #ffffff;
+            --surface: #f0f0f0;
+            --border: #000000;
+        }
+        
+        * {
+            transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+        }
+        
+        .theme-toggle {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+        
+        .network-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.875rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+        }
+        
+        .network-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+        }
+        
+        .network-indicator.disconnected {
+            background: var(--danger);
+        }
+        
+        .activity-log {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .activity-item {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        
+        .activity-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--primary-color);
+            color: white;
+            font-size: 0.875rem;
+        }
+        
+        .activity-content {
+            flex: 1;
+        }
+        
+        .activity-title {
+            font-weight: 500;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+        }
+        
+        .activity-time {
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            margin-top: 2px;
+        }
+        
+        .leaderboard-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .rank-badge {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--primary-color);
+            color: white;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        
+        .member-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--secondary-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 500;
+        }
+        
+        .member-info {
+            flex: 1;
+        }
+        
+        .member-name {
+            font-weight: 500;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+        }
+        
+        .member-score {
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+        }
+        
+        .install-prompt {
+            background: var(--primary-color);
+            color: white;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .install-prompt.show {
+            display: block;
+        }
+        
+        .search-container {
+            position: relative;
+            margin-bottom: 20px;
+        }
+        
+        .search-input {
+            width: 100%;
+            padding: 12px 40px 12px 16px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--background);
+            color: var(--text-primary);
+        }
+        
+        .search-icon {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-secondary);
+        }
+        
+        .filter-chips {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-chip {
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            background: var(--surface);
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: all 0.2s ease;
+        }
+        
+        .filter-chip:hover,
+        .filter-chip.active {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+        
+        .proposal-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+            transition: all 0.2s ease;
+        }
+        
+        .proposal-card:hover {
+            box-shadow: var(--shadow);
+            transform: translateY(-2px);
+        }
+        
+        .proposal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+        
+        .proposal-title {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+        
+        .proposal-meta {
+            display: flex;
+            gap: 12px;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+        
+        .proposal-status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .proposal-status.active {
+            background: var(--success);
+            color: white;
+        }
+        
+        .proposal-status.pending {
+            background: var(--warning);
+            color: white;
+        }
+        
+        .proposal-status.executed {
+            background: var(--text-secondary);
+            color: white;
+        }
+        
+        .proposal-countdown {
+            font-weight: 500;
+            color: var(--danger);
+        }
+        
+        .proposal-tags {
+            display: flex;
+            gap: 6px;
+            margin-top: 12px;
+        }
+        
+        .proposal-tag {
+            padding: 2px 8px;
+            background: var(--secondary-color);
+            color: var(--text-secondary);
+            border-radius: 12px;
+            font-size: 0.75rem;
+        }
+        
+        .voting-progress {
+            margin-top: 16px;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: var(--primary-color);
+            transition: width 0.3s ease;
+        }
+        
+        .progress-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+        
+        .offline-indicator {
+            background: var(--warning);
+            color: white;
+            padding: 8px 16px;
+            text-align: center;
+            font-size: 0.875rem;
+            display: none;
+        }
+        
+        .offline-indicator.show {
+            display: block;
+        }
+        
+        .font-size-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        
+        .font-size-btn {
+            width: 32px;
+            height: 32px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text-primary);
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .accessibility-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+        
+        .keyboard-shortcuts {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 12px;
+        }
+        
+        .shortcut-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px;
+            background: var(--background);
+            border-radius: 4px;
+        }
+        
+        .shortcut-key {
+            background: var(--text-primary);
+            color: var(--background);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.75rem;
+            font-family: monospace;
+        }
+        
+        @media (max-width: 768px) {
+            .keyboard-shortcuts {
+                grid-template-columns: 1fr;
+            }
+            
+            .filter-chips {
+                overflow-x: auto;
+                flex-wrap: nowrap;
+                padding-bottom: 8px;
+            }
+            
+            .nav-menu {
+                display: none;
+            }
+        }
+        
+        .real-time-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--success);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            z-index: 1000;
+        }
+        
+        .real-time-indicator.updating {
+            background: var(--warning);
+        }
+        
+        .pulse {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    </style>
 </head>
-<body>
+<body data-theme="light">
     <!-- Skip Navigation for Accessibility -->
     <a href="#main-content" class="skip-nav">Skip to main content</a>
+    
+    <!-- Offline Indicator -->
+    <div id="offlineIndicator" class="offline-indicator">
+        <i class="fas fa-wifi-slash"></i>
+        You're currently offline. Some features may be limited.
+    </div>
+    
+    <!-- Real-time Status Indicator -->
+    <div id="realTimeIndicator" class="real-time-indicator">
+        <div class="pulse"></div>
+        <span>Live</span>
+    </div>
+    
+    <!-- Install App Prompt -->
+    <div id="installPrompt" class="install-prompt">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <strong>Install Quadratic DAO App</strong>
+                <div style="font-size: 0.875rem; margin-top: 4px;">Get quick access and offline functionality</div>
+            </div>
+            <div>
+                <button id="installBtn" class="btn btn-outline" style="margin-right: 8px;">Install</button>
+                <button id="dismissInstall" class="btn btn-text">×</button>
+            </div>
+        </div>
+    </div>
     
     <!-- No JavaScript Fallback -->
     <noscript>
@@ -65,8 +530,28 @@
                 <a href="#proposals" class="nav-link" role="menuitem" aria-label="Proposals section">Proposals</a>
                 <a href="#treasury" class="nav-link" role="menuitem" aria-label="Treasury section">Treasury</a>
                 <a href="#analytics" class="nav-link" role="menuitem" aria-label="Analytics section">Analytics</a>
+                <a href="#leaderboard" class="nav-link" role="menuitem" aria-label="Leaderboard section">Leaderboard</a>
             </div>
             <div class="nav-actions">
+                <!-- Network Status -->
+                <div id="networkStatus" class="network-status">
+                    <div class="network-indicator" id="networkIndicator"></div>
+                    <span id="networkName">Disconnected</span>
+                </div>
+                
+                <!-- Theme Toggle -->
+                <div class="theme-controls">
+                    <button id="themeToggle" class="theme-toggle" title="Toggle theme">
+                        <i class="fas fa-moon" id="themeIcon"></i>
+                    </button>
+                </div>
+                
+                <!-- Accessibility Controls -->
+                <div class="font-size-controls">
+                    <button class="font-size-btn" id="decreaseFont" title="Decrease font size">A-</button>
+                    <button class="font-size-btn" id="increaseFont" title="Increase font size">A+</button>
+                </div>
+                
                 <button id="connectWallet" class="btn btn-primary" type="button" aria-describedby="wallet-help">
                     <i class="fas fa-wallet" aria-hidden="true"></i>
                     <span>Connect Wallet</span>
@@ -78,8 +563,21 @@
 
     <!-- Main Container -->
     <div class="main-container">
-        <!-- Sidebar -->
+        <!-- Enhanced Sidebar -->
         <aside class="sidebar" role="complementary" aria-label="DAO Information">
+            <!-- Wallet Info with Balance -->
+            <section class="sidebar-section" aria-labelledby="wallet-info-title">
+                <h3 id="wallet-info-title">
+                    <i class="fas fa-wallet" aria-hidden="true"></i> 
+                    Wallet Info
+                </h3>
+                <div id="walletInfo" class="wallet-info" role="status" aria-live="polite">
+                    <div class="wallet-address" id="walletAddress">Not connected</div>
+                    <div class="wallet-balance" id="walletBalance">0 ETH</div>
+                    <div class="wallet-network" id="walletNetwork">-</div>
+                </div>
+            </section>
+            
             <section class="sidebar-section" aria-labelledby="member-status-title">
                 <h3 id="member-status-title">
                     <i class="fas fa-user-circle" aria-hidden="true"></i> 
@@ -87,6 +585,8 @@
                 </h3>
                 <div id="memberInfo" class="member-info" role="status" aria-live="polite">
                     <p class="status-text">Wallet not connected</p>
+                    <div class="member-since" id="memberSince" style="display: none;"></div>
+                    <div class="reputation-score" id="reputationScore" style="display: none;"></div>
                 </div>
             </section>
 
@@ -98,6 +598,10 @@
                 <div id="votingPowerDisplay" class="voting-power" role="status" aria-live="polite">
                     <div class="power-display" aria-label="Available credits">0</div>
                     <p class="power-label">Credits Available</p>
+                    <div class="power-breakdown">
+                        <small>Total Earned: <span id="totalCredits">0</span></small><br>
+                        <small>Used: <span id="usedCredits">0</span></small>
+                    </div>
                 </div>
             </section>
 
@@ -115,6 +619,46 @@
                 </div>
             </section>
 
+            <!-- Activity Log Section -->
+            <section class="sidebar-section" aria-labelledby="activity-title">
+                <h3 id="activity-title">
+                    <i class="fas fa-history" aria-hidden="true"></i> 
+                    Recent Activity
+                    <button id="toggleActivity" class="btn btn-text" style="float: right; padding: 0;">
+                        <i class="fas fa-chevron-up"></i>
+                    </button>
+                </h3>
+                <div id="activityLog" class="activity-log">
+                    <div class="activity-item">
+                        <div class="activity-icon">
+                            <i class="fas fa-user-plus"></i>
+                        </div>
+                        <div class="activity-content">
+                            <div class="activity-title">Alice joined the DAO</div>
+                            <div class="activity-time">2 hours ago</div>
+                        </div>
+                    </div>
+                    <div class="activity-item">
+                        <div class="activity-icon">
+                            <i class="fas fa-vote-yea"></i>
+                        </div>
+                        <div class="activity-content">
+                            <div class="activity-title">Bob voted on Treasury Proposal #5</div>
+                            <div class="activity-time">4 hours ago</div>
+                        </div>
+                    </div>
+                    <div class="activity-item">
+                        <div class="activity-icon">
+                            <i class="fas fa-plus-circle"></i>
+                        </div>
+                        <div class="activity-content">
+                            <div class="activity-title">New proposal: Community Fund</div>
+                            <div class="activity-time">6 hours ago</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <section class="sidebar-section" aria-labelledby="stats-title">
                 <h3 id="stats-title">
                     <i class="fas fa-chart-line" aria-hidden="true"></i> 
@@ -122,16 +666,20 @@
                 </h3>
                 <div class="quick-stats" role="group" aria-label="DAO Statistics">
                     <div class="stat-item">
-                        <span class="stat-value" id="totalMembers" aria-label="Total members">0</span>
+                        <span class="stat-value" id="totalMembers" aria-label="Total members">247</span>
                         <span class="stat-label">Members</span>
                     </div>
                     <div class="stat-item">
-                        <span class="stat-value" id="activeProposals" aria-label="Active proposals">0</span>
+                        <span class="stat-value" id="activeProposals" aria-label="Active proposals">8</span>
                         <span class="stat-label">Active Proposals</span>
                     </div>
                     <div class="stat-item">
-                        <span class="stat-value" id="totalVotes" aria-label="Total votes cast">0</span>
+                        <span class="stat-value" id="totalVotes" aria-label="Total votes cast">1,543</span>
                         <span class="stat-label">Total Votes</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="avgParticipation" aria-label="Average participation">72%</span>
+                        <span class="stat-label">Participation</span>
                     </div>
                 </div>
             </section>
@@ -139,6 +687,22 @@
 
         <!-- Main Content -->
         <main id="main-content" class="main-content" role="main">
+            <!-- Accessibility Panel -->
+            <div class="accessibility-panel">
+                <h4><i class="fas fa-universal-access"></i> Accessibility & Settings</h4>
+                <div style="display: flex; gap: 16px; align-items: center; margin-top: 12px;">
+                    <label>
+                        <input type="checkbox" id="highContrastMode"> High Contrast Mode
+                    </label>
+                    <label>
+                        <input type="checkbox" id="screenReaderMode"> Enhanced Screen Reader
+                    </label>
+                    <button id="showKeyboardShortcuts" class="btn btn-outline">
+                        <i class="fas fa-keyboard"></i> Shortcuts
+                    </button>
+                </div>
+            </div>
+            
             <!-- Hero Section -->
             <section class="hero-section" role="banner" aria-labelledby="hero-title">
                 <div class="hero-content">
@@ -168,8 +732,24 @@
                     </div>
                 </div>
             </section>
+            
+            <!-- Global Search -->
+            <section class="search-section">
+                <div class="search-container">
+                    <input type="text" id="globalSearch" class="search-input" placeholder="Search proposals, members, or activities...">
+                    <i class="fas fa-search search-icon"></i>
+                </div>
+                <div class="filter-chips">
+                    <div class="filter-chip active" data-filter="all">All</div>
+                    <div class="filter-chip" data-filter="governance">Governance</div>
+                    <div class="filter-chip" data-filter="treasury">Treasury</div>
+                    <div class="filter-chip" data-filter="technical">Technical</div>
+                    <div class="filter-chip" data-filter="community">Community</div>
+                    <div class="filter-chip" data-filter="active">Active Only</div>
+                </div>
+            </section>
 
-            <!-- Proposal Creation Form -->
+            <!-- Enhanced Proposal Creation Form -->
             <section id="proposalCreation" class="section-card" style="display: none;" aria-labelledby="create-proposal-title">
                 <h2 id="create-proposal-title">
                     <i class="fas fa-edit" aria-hidden="true"></i> 
@@ -207,23 +787,54 @@
                         <div id="description-error" class="error-message" role="alert" aria-live="polite"></div>
                     </div>
                     
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="proposalCategory">Category <span class="required" aria-label="required">*</span></label>
+                            <select id="proposalCategory" name="category" required aria-describedby="category-help category-error">
+                                <option value="">Select category</option>
+                                <option value="governance">Governance</option>
+                                <option value="treasury">Treasury</option>
+                                <option value="technical">Technical</option>
+                                <option value="community">Community</option>
+                                <option value="marketing">Marketing</option>
+                            </select>
+                            <div id="category-help" class="help-text">Choose the most appropriate category</div>
+                            <div id="category-error" class="error-message" role="alert" aria-live="polite"></div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="proposalDeadline">Voting Deadline</label>
+                            <input type="datetime-local" id="proposalDeadline" name="deadline" aria-describedby="deadline-help">
+                            <div id="deadline-help" class="help-text">When should voting end? (default: 7 days)</div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group" id="fundingGroup" style="display: none;">
+                        <label for="fundingAmount">Requested Funding (ETH)</label>
+                        <input type="number" id="fundingAmount" name="funding" step="0.01" min="0" placeholder="0.00">
+                        <div class="help-text">Amount requested from treasury (if applicable)</div>
+                    </div>
+                    
                     <div class="form-group">
-                        <label for="proposalCategory">Category <span class="required" aria-label="required">*</span></label>
-                        <select id="proposalCategory" name="category" required aria-describedby="category-help category-error">
-                            <option value="">Select category</option>
-                            <option value="governance">Governance</option>
-                            <option value="treasury">Treasury</option>
-                            <option value="technical">Technical</option>
-                            <option value="community">Community</option>
-                        </select>
-                        <div id="category-help" class="help-text">Choose the most appropriate category for your proposal</div>
-                        <div id="category-error" class="error-message" role="alert" aria-live="polite"></div>
+                        <label for="proposalTags">Tags</label>
+                        <input type="text" id="proposalTags" name="tags" placeholder="Add tags separated by commas">
+                        <div class="help-text">Help others find your proposal (e.g., urgent, long-term, experimental)</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="proposalLinks">Supporting Links</label>
+                        <textarea id="proposalLinks" name="links" rows="2" placeholder="Add relevant links (one per line)"></textarea>
+                        <div class="help-text">Documentation, forums, or other supporting materials</div>
                     </div>
                     
                     <div class="form-actions" role="group" aria-label="Form actions">
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-paper-plane" aria-hidden="true"></i>
                             <span>Submit Proposal</span>
+                        </button>
+                        <button type="button" id="saveDraft" class="btn btn-outline">
+                            <i class="fas fa-save"></i>
+                            Save Draft
                         </button>
                         <button type="button" id="cancelProposal" class="btn btn-outline">
                             Cancel
@@ -232,15 +843,22 @@
                 </form>
             </section>
 
-            <!-- Proposals List -->
+            <!-- Enhanced Proposals List -->
             <section class="section-card" aria-labelledby="proposals-title">
                 <div class="section-header">
                     <h2 id="proposals-title">
                         <i class="fas fa-vote-yea" aria-hidden="true"></i> 
                         Active Proposals
+                        <span class="section-subtitle" id="proposalCount">(8 active)</span>
                     </h2>
                     <div class="section-controls">
-                        <label for="proposalFilter" class="sr-only">Filter proposals</label>
+                        <select id="sortProposals" class="filter-select" aria-label="Sort proposals">
+                            <option value="newest">Newest First</option>
+                            <option value="oldest">Oldest First</option>
+                            <option value="mostVotes">Most Votes</option>
+                            <option value="deadline">By Deadline</option>
+                            <option value="trending">Trending</option>
+                        </select>
                         <select id="proposalFilter" class="filter-select" aria-label="Filter proposals by status">
                             <option value="all">All Proposals</option>
                             <option value="active">Active</option>
@@ -249,16 +867,244 @@
                         </select>
                     </div>
                 </div>
+                
                 <div id="proposalsList" class="proposals-grid" role="region" aria-label="Proposals list" aria-live="polite">
-                    <div class="empty-state">
-                        <i class="fas fa-inbox" aria-hidden="true"></i>
-                        <h3>No proposals yet</h3>
-                        <p>Be the first to create a proposal and start the governance process!</p>
+                    <!-- Sample Enhanced Proposal Cards -->
+                    <div class="proposal-card" data-category="treasury" data-status="active">
+                        <div class="proposal-header">
+                            <div>
+                                <h3 class="proposal-title">Community Development Fund Q4 2025</h3>
+                                <div class="proposal-meta">
+                                    <span><i class="fas fa-user"></i> Alice.eth</span>
+                                    <span><i class="fas fa-clock"></i> 2 days ago</span>
+                                    <span><i class="fas fa-eye"></i> 156 views</span>
+                                </div>
+                            </div>
+                            <div class="proposal-status active">Active</div>
+                        </div>
+                        
+                        <p class="proposal-description">
+                            Proposal to allocate 50 ETH for community development initiatives including hackathons, educational content, and developer grants.
+                        </p>
+                        
+                        <div class="proposal-funding">
+                            <strong>Requested: 50 ETH</strong>
+                        </div>
+                        
+                        <div class="voting-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 68%;"></div>
+                            </div>
+                            <div class="progress-labels">
+                                <span>For: 164 votes (68%)</span>
+                                <span>Against: 78 votes (32%)</span>
+                            </div>
+                        </div>
+                        
+                        <div class="proposal-countdown">
+                            <i class="fas fa-hourglass-half"></i> 4 days, 12 hours left
+                        </div>
+                        
+                        <div class="proposal-tags">
+                            <span class="proposal-tag">treasury</span>
+                            <span class="proposal-tag">community</span>
+                            <span class="proposal-tag">urgent</span>
+                        </div>
+                        
+                        <div class="proposal-actions">
+                            <button class="btn btn-primary btn-vote" data-proposal="1">
+                                <i class="fas fa-vote-yea"></i> Vote
+                            </button>
+                            <button class="btn btn-outline">
+                                <i class="fas fa-external-link-alt"></i> Details
+                            </button>
+                            <button class="btn btn-text">
+                                <i class="fas fa-share"></i> Share
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="proposal-card" data-category="governance" data-status="active">
+                        <div class="proposal-header">
+                            <div>
+                                <h3 class="proposal-title">Update Voting Period to 5 Days</h3>
+                                <div class="proposal-meta">
+                                    <span><i class="fas fa-user"></i> Bob.eth</span>
+                                    <span><i class="fas fa-clock"></i> 1 week ago</span>
+                                    <span><i class="fas fa-eye"></i> 89 views</span>
+                                </div>
+                            </div>
+                            <div class="proposal-status active">Active</div>
+                        </div>
+                        
+                        <p class="proposal-description">
+                            Reduce the standard voting period from 7 days to 5 days to increase governance efficiency while maintaining adequate deliberation time.
+                        </p>
+                        
+                        <div class="voting-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 45%;"></div>
+                            </div>
+                            <div class="progress-labels">
+                                <span>For: 89 votes (45%)</span>
+                                <span>Against: 109 votes (55%)</span>
+                            </div>
+                        </div>
+                        
+                        <div class="proposal-countdown">
+                            <i class="fas fa-hourglass-half"></i> 1 day, 8 hours left
+                        </div>
+                        
+                        <div class="proposal-tags">
+                            <span class="proposal-tag">governance</span>
+                            <span class="proposal-tag">process</span>
+                        </div>
+                        
+                        <div class="proposal-actions">
+                            <button class="btn btn-primary btn-vote" data-proposal="2">
+                                <i class="fas fa-vote-yea"></i> Vote
+                            </button>
+                            <button class="btn btn-outline">
+                                <i class="fas fa-external-link-alt"></i> Details
+                            </button>
+                            <button class="btn btn-text">
+                                <i class="fas fa-share"></i> Share
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="proposal-card" data-category="technical" data-status="pending">
+                        <div class="proposal-header">
+                            <div>
+                                <h3 class="proposal-title">Implement Layer 2 Integration</h3>
+                                <div class="proposal-meta">
+                                    <span><i class="fas fa-user"></i> Charlie.eth</span>
+                                    <span><i class="fas fa-clock"></i> 3 days ago</span>
+                                    <span><i class="fas fa-eye"></i> 203 views</span>
+                                </div>
+                            </div>
+                            <div class="proposal-status pending">Pending</div>
+                        </div>
+                        
+                        <p class="proposal-description">
+                            Integrate with Polygon network to reduce transaction costs and improve user experience for DAO operations.
+                        </p>
+                        
+                        <div class="proposal-funding">
+                            <strong>Requested: 15 ETH</strong>
+                        </div>
+                        
+                        <div class="proposal-countdown">
+                            <i class="fas fa-clock"></i> Voting starts in 2 hours
+                        </div>
+                        
+                        <div class="proposal-tags">
+                            <span class="proposal-tag">technical</span>
+                            <span class="proposal-tag">layer2</span>
+                            <span class="proposal-tag">gas-optimization</span>
+                        </div>
+                        
+                        <div class="proposal-actions">
+                            <button class="btn btn-outline" disabled>
+                                <i class="fas fa-clock"></i> Pending
+                            </button>
+                            <button class="btn btn-outline">
+                                <i class="fas fa-external-link-alt"></i> Details
+                            </button>
+                            <button class="btn btn-text">
+                                <i class="fas fa-share"></i> Share
+                            </button>
+                        </div>
                     </div>
                 </div>
             </section>
 
-            <!-- Voting Interface -->
+            <!-- Leaderboard Section -->
+            <section class="section-card" aria-labelledby="leaderboard-title">
+                <div class="section-header">
+                    <h2 id="leaderboard-title">
+                        <i class="fas fa-trophy" aria-hidden="true"></i> 
+                        Member Leaderboard
+                    </h2>
+                    <div class="section-controls">
+                        <select id="leaderboardMetric" class="filter-select">
+                            <option value="participation">Participation Score</option>
+                            <option value="proposals">Proposals Created</option>
+                            <option value="votes">Votes Cast</option>
+                            <option value="reputation">Reputation Points</option>
+                        </select>
+                        <select id="leaderboardPeriod" class="filter-select">
+                            <option value="all">All Time</option>
+                            <option value="month">This Month</option>
+                            <option value="week">This Week</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div id="leaderboardList" class="leaderboard-list">
+                    <div class="leaderboard-item">
+                        <div class="rank-badge">1</div>
+                        <div class="member-avatar">A</div>
+                        <div class="member-info">
+                            <div class="member-name">Alice.eth</div>
+                            <div class="member-score">2,847 participation points</div>
+                        </div>
+                        <div class="member-stats">
+                            <small>47 votes | 12 proposals</small>
+                        </div>
+                    </div>
+                    
+                    <div class="leaderboard-item">
+                        <div class="rank-badge">2</div>
+                        <div class="member-avatar">B</div>
+                        <div class="member-info">
+                            <div class="member-name">Bob.eth</div>
+                            <div class="member-score">2,156 participation points</div>
+                        </div>
+                        <div class="member-stats">
+                            <small>38 votes | 8 proposals</small>
+                        </div>
+                    </div>
+                    
+                    <div class="leaderboard-item">
+                        <div class="rank-badge">3</div>
+                        <div class="member-avatar">C</div>
+                        <div class="member-info">
+                            <div class="member-name">Charlie.eth</div>
+                            <div class="member-score">1,923 participation points</div>
+                        </div>
+                        <div class="member-stats">
+                            <small>35 votes | 15 proposals</small>
+                        </div>
+                    </div>
+                    
+                    <div class="leaderboard-item">
+                        <div class="rank-badge">4</div>
+                        <div class="member-avatar">D</div>
+                        <div class="member-info">
+                            <div class="member-name">Diana.eth</div>
+                            <div class="member-score">1,687 participation points</div>
+                        </div>
+                        <div class="member-stats">
+                            <small>29 votes | 6 proposals</small>
+                        </div>
+                    </div>
+                    
+                    <div class="leaderboard-item">
+                        <div class="rank-badge">5</div>
+                        <div class="member-avatar">E</div>
+                        <div class="member-info">
+                            <div class="member-name">Eve.eth</div>
+                            <div class="member-score">1,542 participation points</div>
+                        </div>
+                        <div class="member-stats">
+                            <small>31 votes | 4 proposals</small>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Enhanced Voting Interface -->
             <section id="votingSection" class="section-card" style="display: none;" aria-labelledby="voting-title">
                 <h2 id="voting-title">
                     <i class="fas fa-poll" aria-hidden="true"></i> 
@@ -266,8 +1112,13 @@
                 </h2>
                 <div class="voting-interface">
                     <div class="proposal-details" aria-labelledby="voting-proposal-title">
-                        <h3 id="votingProposalTitle">Proposal Title</h3>
-                        <p id="votingProposalDescription">Proposal description will appear here.</p>
+                        <h3 id="votingProposalTitle">Community Development Fund Q4 2025</h3>
+                        <p id="votingProposalDescription">Proposal to allocate 50 ETH for community development initiatives.</p>
+                        <div class="proposal-meta">
+                            <span>Created by: Alice.eth</span>
+                            <span>Deadline: 4 days, 12 hours</span>
+                            <span>Required Quorum: 30% (74 votes needed)</span>
+                        </div>
                     </div>
                     
                     <form id="votingForm" class="voting-controls">
@@ -290,6 +1141,15 @@
                                 </span>
                             </label>
                             <div id="vote-against-help" class="sr-only">Vote against this proposal</div>
+                            
+                            <label class="vote-option-label">
+                                <input type="radio" name="voteType" value="abstain" aria-describedby="vote-abstain-help">
+                                <span class="vote-option abstain">
+                                    <i class="fas fa-minus" aria-hidden="true"></i>
+                                    Abstain
+                                </span>
+                            </label>
+                            <div id="vote-abstain-help" class="sr-only">Abstain from voting</div>
                         </fieldset>
                         
                         <div class="credits-selection">
@@ -309,6 +1169,10 @@
                             <div id="credits-info" class="credits-info" aria-live="polite">
                                 <span>Voting Power: <strong id="votingPowerCalc" aria-label="Calculated voting power">1</strong></span>
                                 <span>Quadratic Cost: <strong id="votingCost" aria-label="Quadratic cost">1</strong> credits</span>
+                                <span>Remaining: <strong id="remainingCredits">99</strong> credits</span>
+                            </div>
+                            <div class="quadratic-explanation">
+                                <small><i class="fas fa-info-circle"></i> Quadratic voting: Cost = Credits²</small>
                             </div>
                         </div>
                         
@@ -320,13 +1184,25 @@
                             <div id="delegate-help" class="sr-only">Delegate your vote to a trusted representative</div>
                             <select id="delegateSelect" disabled aria-label="Select delegate">
                                 <option value="">Select delegate</option>
+                                <option value="alice">Alice.eth (Governance Expert)</option>
+                                <option value="bob">Bob.eth (Technical Lead)</option>
+                                <option value="charlie">Charlie.eth (Community Manager)</option>
                             </select>
+                        </div>
+                        
+                        <div class="vote-reason">
+                            <label for="voteReason">Reason for Vote (Optional)</label>
+                            <textarea id="voteReason" placeholder="Share why you're voting this way..."></textarea>
                         </div>
                         
                         <div class="voting-actions" role="group" aria-label="Voting actions">
                             <button type="submit" id="castVote" class="btn btn-primary">
                                 <i class="fas fa-vote-yea" aria-hidden="true"></i>
                                 <span>Cast Vote</span>
+                            </button>
+                            <button type="button" id="previewVote" class="btn btn-outline">
+                                <i class="fas fa-eye"></i>
+                                Preview Impact
                             </button>
                             <button type="button" id="cancelVote" class="btn btn-outline">
                                 Cancel
@@ -336,17 +1212,32 @@
                 </div>
             </section>
 
-            <!-- Analytics Dashboard -->
+            <!-- Enhanced Analytics Dashboard -->
             <section class="section-card" aria-labelledby="analytics-title">
-                <h2 id="analytics-title">
-                    <i class="fas fa-chart-bar" aria-hidden="true"></i> 
-                    Governance Analytics
-                </h2>
+                <div class="section-header">
+                    <h2 id="analytics-title">
+                        <i class="fas fa-chart-bar" aria-hidden="true"></i> 
+                        Governance Analytics
+                    </h2>
+                    <div class="section-controls">
+                        <select id="analyticsTimeframe" class="filter-select">
+                            <option value="7d">Last 7 Days</option>
+                            <option value="30d">Last 30 Days</option>
+                            <option value="90d">Last 90 Days</option>
+                            <option value="all">All Time</option>
+                        </select>
+                        <button id="exportAnalytics" class="btn btn-outline">
+                            <i class="fas fa-download"></i> Export
+                        </button>
+                    </div>
+                </div>
+                
                 <div class="analytics-grid">
                     <div class="analytics-card" role="group" aria-labelledby="participation-title">
                         <h3 id="participation-title">Participation Rate</h3>
                         <div class="metric-display">
-                            <span class="metric-value" id="participationRate" aria-label="Current participation rate">0%</span>
+                            <span class="metric-value" id="participationRate" aria-label="Current participation rate">72%</span>
+                            <div class="metric-change positive">+5.2% vs last period</div>
                             <canvas id="participationChart" aria-label="Participation trends chart"></canvas>
                         </div>
                     </div>
@@ -354,6 +1245,42 @@
                     <div class="analytics-card" role="group" aria-labelledby="distribution-title">
                         <h3 id="distribution-title">Vote Distribution</h3>
                         <canvas id="voteDistributionChart" aria-label="Vote distribution across proposals"></canvas>
+                        <div class="chart-legend">
+                            <div class="legend-item">
+                                <span class="legend-color" style="background: #27ae60;"></span>
+                                <span>For (68%)</span>
+                            </div>
+                            <div class="legend-item">
+                                <span class="legend-color" style="background: #e74c3c;"></span>
+                                <span>Against (28%)</span>
+                            </div>
+                            <div class="legend-item">
+                                <span class="legend-color" style="background: #95a5a6;"></span>
+                                <span>Abstain (4%)</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="analytics-card" role="group" aria-labelledby="success-rate-title">
+                        <h3 id="success-rate-title">Proposal Success Rate</h3>
+                        <div class="metric-display">
+                            <span class="metric-value">64%</span>
+                            <div class="metric-subtitle">18 of 28 proposals passed</div>
+                        </div>
+                        <div class="success-breakdown">
+                            <div class="category-stat">
+                                <span>Governance: 80%</span>
+                                <div class="mini-bar"><div style="width: 80%; background: var(--success);"></div></div>
+                            </div>
+                            <div class="category-stat">
+                                <span>Treasury: 60%</span>
+                                <div class="mini-bar"><div style="width: 60%; background: var(--warning);"></div></div>
+                            </div>
+                            <div class="category-stat">
+                                <span>Technical: 45%</span>
+                                <div class="mini-bar"><div style="width: 45%; background: var(--danger);"></div></div>
+                            </div>
+                        </div>
                     </div>
                     
                     <div class="analytics-card" role="group" aria-labelledby="delegation-network-title">
@@ -361,13 +1288,18 @@
                         <div class="delegation-stats">
                             <div class="stat">
                                 <span class="label">Active Delegates</span>
-                                <span class="value" id="activeDelegates" aria-label="Number of active delegates">0</span>
+                                <span class="value" id="activeDelegates" aria-label="Number of active delegates">24</span>
                             </div>
                             <div class="stat">
                                 <span class="label">Delegated Power</span>
-                                <span class="value" id="delegatedPower" aria-label="Percentage of delegated voting power">0%</span>
+                                <span class="value" id="delegatedPower" aria-label="Percentage of delegated voting power">38%</span>
+                            </div>
+                            <div class="stat">
+                                <span class="label">Avg Delegation Size</span>
+                                <span class="value">3.2 members</span>
                             </div>
                         </div>
+                        <canvas id="delegationChart" aria-label="Delegation network visualization"></canvas>
                     </div>
                     
                     <div class="analytics-card" role="group" aria-labelledby="treasury-title">
@@ -375,11 +1307,31 @@
                         <div class="treasury-stats">
                             <div class="stat">
                                 <span class="label">Total Balance</span>
-                                <span class="value" id="treasuryBalance" aria-label="Current treasury balance">0 ETH</span>
+                                <span class="value" id="treasuryBalance" aria-label="Current treasury balance">156.7 ETH</span>
                             </div>
                             <div class="stat">
                                 <span class="label">Proposals Funded</span>
-                                <span class="value" id="proposalsFunded" aria-label="Number of funded proposals">0</span>
+                                <span class="value" id="proposalsFunded" aria-label="Number of funded proposals">12</span>
+                            </div>
+                            <div class="stat">
+                                <span class="label">Total Allocated</span>
+                                <span class="value">89.3 ETH</span>
+                            </div>
+                        </div>
+                        <canvas id="treasuryChart" aria-label="Treasury allocation breakdown"></canvas>
+                    </div>
+                    
+                    <div class="analytics-card" role="group" aria-labelledby="activity-trends-title">
+                        <h3 id="activity-trends-title">Activity Trends</h3>
+                        <canvas id="activityTrendsChart" aria-label="DAO activity over time"></canvas>
+                        <div class="trend-summary">
+                            <div class="trend-item">
+                                <span class="trend-label">Peak Activity:</span>
+                                <span class="trend-value">Tuesdays, 2-4 PM UTC</span>
+                            </div>
+                            <div class="trend-item">
+                                <span class="trend-label">New Members:</span>
+                                <span class="trend-value">+23 this month</span>
                             </div>
                         </div>
                     </div>
@@ -388,7 +1340,7 @@
         </main>
     </div>
 
-    <!-- Delegation Modal -->
+    <!-- Enhanced Delegation Modal -->
     <div id="delegationModal" class="modal" role="dialog" aria-labelledby="delegation-modal-title" aria-hidden="true">
         <div class="modal-overlay" data-close-modal></div>
         <div class="modal-content" role="document">
@@ -399,37 +1351,134 @@
                 </button>
             </header>
             <div class="modal-body">
-                <form id="delegationForm" class="delegation-form">
-                    <div class="form-group">
-                        <label for="delegateAddress">Delegate Address</label>
-                        <input 
-                            type="text" 
-                            id="delegateAddress" 
-                            name="address"
-                            placeholder="0x..." 
-                            pattern="^0x[a-fA-F0-9]{40}$"
-                            aria-describedby="address-help address-error"
-                            autocomplete="off">
-                        <div id="address-help" class="help-text">
-                            Enter a valid Ethereum address (42 characters starting with 0x)
+                <div class="delegation-tabs">
+                    <button class="tab-btn active" data-tab="delegate">Delegate</button>
+                    <button class="tab-btn" data-tab="become">Become Delegate</button>
+                    <button class="tab-btn" data-tab="network">Network</button>
+                </div>
+                
+                <div id="delegateTab" class="tab-content active">
+                    <form id="delegationForm" class="delegation-form">
+                        <div class="form-group">
+                            <label for="delegateAddress">Delegate Address</label>
+                            <input 
+                                type="text" 
+                                id="delegateAddress" 
+                                name="address"
+                                placeholder="0x..." 
+                                pattern="^0x[a-fA-F0-9]{40}$"
+                                aria-describedby="address-help address-error"
+                                autocomplete="off">
+                            <div id="address-help" class="help-text">
+                                Enter a valid Ethereum address or select from recommended delegates
+                            </div>
+                            <div id="address-error" class="error-message" role="alert" aria-live="polite"></div>
                         </div>
-                        <div id="address-error" class="error-message" role="alert" aria-live="polite"></div>
+                        
+                        <div class="recommended-delegates">
+                            <h4>Recommended Delegates</h4>
+                            <div class="delegate-list">
+                                <div class="delegate-option" data-address="0x123...">
+                                    <div class="delegate-info">
+                                        <strong>Alice.eth</strong>
+                                        <div>Governance Expert • 95% participation</div>
+                                    </div>
+                                    <button class="btn btn-outline btn-select-delegate">Select</button>
+                                </div>
+                                <div class="delegate-option" data-address="0x456...">
+                                    <div class="delegate-info">
+                                        <strong>Bob.eth</strong>
+                                        <div>Technical Lead • 88% participation</div>
+                                    </div>
+                                    <button class="btn btn-outline btn-select-delegate">Select</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="current-delegation">
+                            <h4>Current Delegation</h4>
+                            <p id="currentDelegate" aria-live="polite">None</p>
+                        </div>
+                        
+                        <div class="modal-actions" role="group" aria-label="Delegation actions">
+                            <button type="submit" id="setDelegate" class="btn btn-primary">
+                                Set Delegate
+                            </button>
+                            <button type="button" id="revokeDelegate" class="btn btn-outline">
+                                Revoke Delegation
+                            </button>
+                        </div>
+                    </form>
+                </div>
+                
+                <div id="becomeTab" class="tab-content">
+                    <div class="become-delegate-content">
+                        <h4>Become a Delegate</h4>
+                        <p>Delegates help represent community members in governance decisions. Requirements:</p>
+                        <ul>
+                            <li>Active DAO member for at least 30 days</li>
+                            <li>Minimum 70% participation rate</li>
+                            <li>Complete delegate profile and statement</li>
+                        </ul>
+                        <button id="applyDelegate" class="btn btn-primary">Apply to be Delegate</button>
                     </div>
-                    
-                    <div class="current-delegation">
-                        <h4>Current Delegation</h4>
-                        <p id="currentDelegate" aria-live="polite">None</p>
+                </div>
+                
+                <div id="networkTab" class="tab-content">
+                    <div class="delegation-network-view">
+                        <h4>Delegation Network</h4>
+                        <canvas id="networkVisualization" width="400" height="300"></canvas>
+                        <div class="network-stats">
+                            <div class="stat-item">
+                                <span>Total Delegators: 94</span>
+                            </div>
+                            <div class="stat-item">
+                                <span>Active Delegates: 24</span>
+                            </div>
+                        </div>
                     </div>
-                    
-                    <div class="modal-actions" role="group" aria-label="Delegation actions">
-                        <button type="submit" id="setDelegate" class="btn btn-primary">
-                            Set Delegate
-                        </button>
-                        <button type="button" id="revokeDelegate" class="btn btn-outline">
-                            Revoke Delegation
-                        </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Keyboard Shortcuts Modal -->
+    <div id="keyboardShortcutsModal" class="modal" role="dialog" aria-labelledby="shortcuts-modal-title" aria-hidden="true">
+        <div class="modal-overlay" data-close-modal></div>
+        <div class="modal-content" role="document">
+            <header class="modal-header">
+                <h3 id="shortcuts-modal-title">Keyboard Shortcuts</h3>
+                <button class="modal-close" type="button" aria-label="Close modal" data-close-modal>
+                    <i class="fas fa-times" aria-hidden="true"></i>
+                </button>
+            </header>
+            <div class="modal-body">
+                <div class="keyboard-shortcuts">
+                    <div class="shortcut-item">
+                        <span>Navigate</span>
+                        <span class="shortcut-key">Tab</span>
                     </div>
-                </form>
+                    <div class="shortcut-item">
+                        <span>Search</span>
+                        <span class="shortcut-key">Ctrl+K</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span>Create Proposal</span>
+                        <span class="shortcut-key">Ctrl+N</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span>Toggle Theme</span>
+                        <span class="shortcut-key">Ctrl+T</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span>Connect Wallet</span>
+                        <span class="shortcut-key">Ctrl+W</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span>Help</span>
+                        <span class="shortcut-key">?</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -452,15 +1501,236 @@
     <script src="./js/services/contract-manager.js" defer></script>
     <script src="./js/services/ui-manager.js" defer></script>
     <script src="./js/services/chart-manager.js" defer></script>
+    <script src="./js/services/theme-manager.js" defer></script>
+    <script src="./js/services/notification-manager.js" defer></script>
     <script src="./js/app.js" defer></script>
+
+    <!-- Enhanced JavaScript for New Features -->
+    <script>
+        // Theme Management
+        const themeManager = {
+            init() {
+                const savedTheme = localStorage.getItem('dao-theme') || 'light';
+                this.setTheme(savedTheme);
+                
+                document.getElementById('themeToggle').addEventListener('click', () => {
+                    const currentTheme = document.body.getAttribute('data-theme');
+                    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+                    this.setTheme(newTheme);
+                });
+                
+                document.getElementById('highContrastMode').addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        this.setTheme('high-contrast');
+                    } else {
+                        this.setTheme('light');
+                    }
+                });
+            },
+            
+            setTheme(theme) {
+                document.body.setAttribute('data-theme', theme);
+                localStorage.setItem('dao-theme', theme);
+                
+                const icon = document.getElementById('themeIcon');
+                if (theme === 'dark') {
+                    icon.className = 'fas fa-sun';
+                } else {
+                    icon.className = 'fas fa-moon';
+                }
+            }
+        };
+        
+        // Font Size Management
+        const fontSizeManager = {
+            init() {
+                document.getElementById('increaseFont').addEventListener('click', () => {
+                    this.adjustFontSize(1.1);
+                });
+                
+                document.getElementById('decreaseFont').addEventListener('click', () => {
+                    this.adjustFontSize(0.9);
+                });
+            },
+            
+            adjustFontSize(multiplier) {
+                const root = document.documentElement;
+                const currentSize = parseFloat(getComputedStyle(root).fontSize);
+                const newSize = Math.max(12, Math.min(24, currentSize * multiplier));
+                root.style.fontSize = newSize + 'px';
+                localStorage.setItem('dao-font-size', newSize);
+            }
+        };
+        
+        // PWA Management
+        const pwaManager = {
+            deferredPrompt: null,
+            
+            init() {
+                window.addEventListener('beforeinstallprompt', (e) => {
+                    e.preventDefault();
+                    this.deferredPrompt = e;
+                    document.getElementById('installPrompt').classList.add('show');
+                });
+                
+                document.getElementById('installBtn').addEventListener('click', () => {
+                    if (this.deferredPrompt) {
+                        this.deferredPrompt.prompt();
+                        this.deferredPrompt.userChoice.then((choiceResult) => {
+                            if (choiceResult.outcome === 'accepted') {
+                                console.log('PWA installed');
+                            }
+                            this.deferredPrompt = null;
+                            document.getElementById('installPrompt').classList.remove('show');
+                        });
+                    }
+                });
+                
+                document.getElementById('dismissInstall').addEventListener('click', () => {
+                    document.getElementById('installPrompt').classList.remove('show');
+                });
+                
+                // Offline detection
+                window.addEventListener('online', () => {
+                    document.getElementById('offlineIndicator').classList.remove('show');
+                });
+                
+                window.addEventListener('offline', () => {
+                    document.getElementById('offlineIndicator').classList.add('show');
+                });
+            }
+        };
+        
+        // Keyboard Shortcuts
+        const keyboardManager = {
+            init() {
+                document.addEventListener('keydown', this.handleKeyDown.bind(this));
+                
+                document.getElementById('showKeyboardShortcuts').addEventListener('click', () => {
+                    document.getElementById('keyboardShortcutsModal').style.display = 'flex';
+                    document.getElementById('keyboardShortcutsModal').setAttribute('aria-hidden', 'false');
+                });
+            },
+            
+            handleKeyDown(e) {
+                if (e.ctrlKey || e.metaKey) {
+                    switch(e.key) {
+                        case 'k':
+                            e.preventDefault();
+                            document.getElementById('globalSearch').focus();
+                            break;
+                        case 'n':
+                            e.preventDefault();
+                            document.getElementById('createProposal').click();
+                            break;
+                        case 't':
+                            e.preventDefault();
+                            document.getElementById('themeToggle').click();
+                            break;
+                        case 'w':
+                            e.preventDefault();
+                            document.getElementById('connectWallet').click();
+                            break;
+                    }
+                } else if (e.key === '?') {
+                    document.getElementById('showKeyboardShortcuts').click();
+                }
+            }
+        };
+        
+        // Real-time Updates
+        const realTimeManager = {
+            updateInterval: null,
+            
+            init() {
+                this.startUpdates();
+            },
+            
+            startUpdates() {
+                this.updateInterval = setInterval(() => {
+                    this.updateData();
+                }, 30000); // Update every 30 seconds
+            },
+            
+            updateData() {
+                const indicator = document.getElementById('realTimeIndicator');
+                indicator.classList.add('updating');
+                
+                // Simulate data updates
+                setTimeout(() => {
+                    indicator.classList.remove('updating');
+                    this.updateUI();
+                }, 2000);
+            },
+            
+            updateUI() {
+                // Update counters, charts, and live data
+                // This would connect to your actual data sources
+            }
+        };
+        
+        // Initialize all managers
+        document.addEventListener('DOMContentLoaded', () => {
+            themeManager.init();
+            fontSizeManager.init();
+            pwaManager.init();
+            keyboardManager.init();
+            realTimeManager.init();
+            
+            // Load saved font size
+            const savedFontSize = localStorage.getItem('dao-font-size');
+            if (savedFontSize) {
+                document.documentElement.style.fontSize = savedFontSize + 'px';
+            }
+        });
+    </script>
 
     <!-- Service Worker Registration -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/sw.js')
-                    .then(registration => console.log('SW registered'))
+                    .then(registration => {
+                        console.log('SW registered');
+                        
+                        // Check for updates
+                        registration.addEventListener('updatefound', () => {
+                            const newWorker = registration.installing;
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    // Show update notification
+                                    showToast('New version available! Refresh to update.', 'info');
+                                }
+                            });
+                        });
+                    })
                     .catch(registrationError => console.log('SW registration failed'));
+            });
+        }
+        
+        // Toast notification function
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.innerHTML = `
+                <div class="toast-content">
+                    <i class="fas fa-${type === 'success' ? 'check' : type === 'error' ? 'exclamation' : 'info'}-circle"></i>
+                    <span>${message}</span>
+                </div>
+                <button class="toast-close">&times;</button>
+            `;
+            
+            container.appendChild(toast);
+            
+            // Auto remove after 5 seconds
+            setTimeout(() => {
+                toast.remove();
+            }, 5000);
+            
+            // Close button
+            toast.querySelector('.toast-close').addEventListener('click', () => {
+                toast.remove();
             });
         }
     </script>
