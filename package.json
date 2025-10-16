@@ -183,4 +183,535 @@
     "url": "https://github.com/yourusername/dao-quadratic-voting/issues"
   },
   "homepage": "https://github.com/yourusername/dao-quadratic-voting#readme"
+  }
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+
+/**
+ * @title EnhancedDAO
+ * @notice Advanced DAO with quadratic voting, reputation system, and time-locked execution
+ */
+contract EnhancedDAO is AccessControl, ReentrancyGuard, Pausable {
+    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+    bytes32 public constant PROPOSER_ROLE = keccak256("PROPOSER_ROLE");
+    
+    // Reputation System
+    struct Reputation {
+        uint256 score;
+        uint256 lastUpdate;
+        uint256 participationCount;
+        uint256 proposalsCreated;
+        uint256 successfulVotes;
+    }
+    
+    // Enhanced Proposal Structure
+    struct Proposal {
+        uint256 id;
+        address proposer;
+        string title;
+        string descriptionHash; // IPFS hash
+        uint256 startTime;
+        uint256 endTime;
+        uint256 executionTime;
+        uint256 forVotes;
+        uint256 againstVotes;
+        uint256 abstainVotes;
+        ProposalState state;
+        address[] targets;
+        uint256[] values;
+        bytes[] calldatas;
+        bytes32 merkleRoot; // For snapshot voting
+        ProposalType proposalType;
+        uint256 quorumRequired;
+        uint256 timelockDuration;
+    }
+    
+    enum ProposalState {
+        Pending,
+        Active,
+        Canceled,
+        Defeated,
+        Succeeded,
+        Queued,
+        Expired,
+        Executed
+    }
+    
+    enum ProposalType {
+        Standard,
+        Constitutional,
+        Emergency,
+        Treasury,
+        Parameter
+    }
+    
+    // Voting Record with Conviction
+    struct Vote {
+        bool hasVoted;
+        uint8 support; // 0=against, 1=for, 2=abstain
+        uint256 votes;
+        uint256 convictionMultiplier; // Lock time multiplier
+        uint256 unlockTime;
+        string reason;
+    }
+    
+    // Delegation with Expiry
+    struct Delegation {
+        address delegate;
+        uint256 expiryTime;
+        bool isActive;
+        uint256 delegatedVotes;
+    }
+    
+    // Treasury Management
+    struct TreasuryAllocation {
+        address token;
+        uint256 amount;
+        uint256 lastWithdrawal;
+        uint256 dailyLimit;
+        uint256 spentToday;
+    }
+    
+    // Staking for Voting Power
+    struct Stake {
+        uint256 amount;
+        uint256 startTime;
+        uint256 lockDuration;
+        uint256 multiplier;
+    }
+    
+    // State Variables
+    mapping(address => Reputation) public reputations;
+    mapping(uint256 => Proposal) public proposals;
+    mapping(uint256 => mapping(address => Vote)) public votes;
+    mapping(address => Delegation) public delegations;
+    mapping(address => address[]) public delegators; // Track who delegated to whom
+    mapping(address => Stake) public stakes;
+    mapping(address => TreasuryAllocation) public treasuryAllocations;
+    
+    uint256 public proposalCount;
+    uint256 public constant VOTING_PERIOD = 7 days;
+    uint256 public constant TIMELOCK_DELAY = 2 days;
+    uint256 public constant MIN_STAKE_DURATION = 30 days;
+    uint256 public constant MAX_CONVICTION_MULTIPLIER = 4;
+    
+    IERC20 public governanceToken;
+    uint256 public proposalThreshold;
+    uint256 public quorumPercentage;
+    
+    // Events
+    event ProposalCreated(
+        uint256 indexed proposalId,
+        address indexed proposer,
+        ProposalType proposalType,
+        uint256 startTime,
+        uint256 endTime
+    );
+    
+    event VoteCast(
+        address indexed voter,
+        uint256 indexed proposalId,
+        uint8 support,
+        uint256 votes,
+        uint256 convictionMultiplier,
+        string reason
+    );
+    
+    event VoteDelegated(
+        address indexed delegator,
+        address indexed delegate,
+        uint256 votes,
+        uint256 expiryTime
+    );
+    
+    event ReputationUpdated(
+        address indexed user,
+        uint256 newScore,
+        string reason
+    );
+    
+    event TokensStaked(
+        address indexed staker,
+        uint256 amount,
+        uint256 lockDuration,
+        uint256 multiplier
+    );
+    
+    event ProposalExecuted(uint256 indexed proposalId);
+    event ProposalQueued(uint256 indexed proposalId, uint256 executionTime);
+    
+    constructor(
+        address _governanceToken,
+        uint256 _proposalThreshold,
+        uint256 _quorumPercentage
+    ) {
+        governanceToken = IERC20(_governanceToken);
+        proposalThreshold = _proposalThreshold;
+        quorumPercentage = _quorumPercentage;
+        
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(ADMIN_ROLE, msg.sender);
+        _grantRole(PROPOSER_ROLE, msg.sender);
+    }
+    
+    /**
+     * @notice Create a new proposal with enhanced parameters
+     */
+    function createProposal(
+        string memory title,
+        string memory descriptionHash,
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        ProposalType proposalType,
+        bytes32 merkleRoot
+    ) external returns (uint256) {
+        require(
+            getVotingPower(msg.sender) >= proposalThreshold,
+            "Insufficient voting power"
+        );
+        
+        proposalCount++;
+        uint256 proposalId = proposalCount;
+        
+        uint256 quorum = getQuorumForType(proposalType);
+        uint256 timelockDuration = getTimelockForType(proposalType);
+        
+        proposals[proposalId] = Proposal({
+            id: proposalId,
+            proposer: msg.sender,
+            title: title,
+            descriptionHash: descriptionHash,
+            startTime: block.timestamp,
+            endTime: block.timestamp + VOTING_PERIOD,
+            executionTime: 0,
+            forVotes: 0,
+            againstVotes: 0,
+            abstainVotes: 0,
+            state: ProposalState.Active,
+            targets: targets,
+            values: values,
+            calldatas: calldatas,
+            merkleRoot: merkleRoot,
+            proposalType: proposalType,
+            quorumRequired: quorum,
+            timelockDuration: timelockDuration
+        });
+        
+        // Update reputation
+        reputations[msg.sender].proposalsCreated++;
+        updateReputation(msg.sender, 10, "Proposal created");
+        
+        emit ProposalCreated(
+            proposalId,
+            msg.sender,
+            proposalType,
+            block.timestamp,
+            block.timestamp + VOTING_PERIOD
+        );
+        
+        return proposalId;
+    }
+    
+    /**
+     * @notice Cast vote with quadratic voting and conviction
+     */
+    function castVote(
+        uint256 proposalId,
+        uint8 support,
+        uint256 convictionWeeks,
+        string memory reason,
+        bytes32[] memory proof
+    ) external nonReentrant {
+        Proposal storage proposal = proposals[proposalId];
+        require(proposal.state == ProposalState.Active, "Proposal not active");
+        require(block.timestamp <= proposal.endTime, "Voting ended");
+        require(!votes[proposalId][msg.sender].hasVoted, "Already voted");
+        require(support <= 2, "Invalid vote type");
+        
+        // Verify merkle proof if snapshot voting
+        if (proposal.merkleRoot != bytes32(0)) {
+            bytes32 leaf = keccak256(abi.encodePacked(msg.sender));
+            require(
+                MerkleProof.verify(proof, proposal.merkleRoot, leaf),
+                "Not eligible to vote"
+            );
+        }
+        
+        uint256 votingPower = getVotingPower(msg.sender);
+        require(votingPower > 0, "No voting power");
+        
+        // Calculate quadratic votes
+        uint256 quadraticVotes = sqrt(votingPower);
+        
+        // Apply conviction multiplier (lock tokens for longer = more voting power)
+        uint256 convictionMultiplier = calculateConvictionMultiplier(convictionWeeks);
+        uint256 finalVotes = (quadraticVotes * convictionMultiplier) / 100;
+        
+        votes[proposalId][msg.sender] = Vote({
+            hasVoted: true,
+            support: support,
+            votes: finalVotes,
+            convictionMultiplier: convictionMultiplier,
+            unlockTime: block.timestamp + (convictionWeeks * 1 weeks),
+            reason: reason
+        });
+        
+        if (support == 0) {
+            proposal.againstVotes += finalVotes;
+        } else if (support == 1) {
+            proposal.forVotes += finalVotes;
+        } else {
+            proposal.abstainVotes += finalVotes;
+        }
+        
+        // Update reputation
+        reputations[msg.sender].participationCount++;
+        updateReputation(msg.sender, 5, "Voted on proposal");
+        
+        emit VoteCast(
+            msg.sender,
+            proposalId,
+            support,
+            finalVotes,
+            convictionMultiplier,
+            reason
+        );
+    }
+    
+    /**
+     * @notice Delegate voting power with expiry
+     */
+    function delegateVotes(address delegate, uint256 durationDays) external {
+        require(delegate != address(0), "Invalid delegate");
+        require(delegate != msg.sender, "Cannot self-delegate");
+        require(durationDays > 0 && durationDays <= 365, "Invalid duration");
+        
+        uint256 votingPower = getVotingPower(msg.sender);
+        require(votingPower > 0, "No voting power to delegate");
+        
+        // Remove old delegation if exists
+        if (delegations[msg.sender].isActive) {
+            _removeDelegation(msg.sender);
+        }
+        
+        uint256 expiryTime = block.timestamp + (durationDays * 1 days);
+        
+        delegations[msg.sender] = Delegation({
+            delegate: delegate,
+            expiryTime: expiryTime,
+            isActive: true,
+            delegatedVotes: votingPower
+        });
+        
+        delegators[delegate].push(msg.sender);
+        
+        emit VoteDelegated(msg.sender, delegate, votingPower, expiryTime);
+    }
+    
+    /**
+     * @notice Stake tokens for increased voting power
+     */
+    function stakeTokens(uint256 amount, uint256 lockDurationDays) external nonReentrant {
+        require(amount > 0, "Amount must be > 0");
+        require(lockDurationDays >= 30 && lockDurationDays <= 1460, "Invalid lock duration");
+        
+        require(
+            governanceToken.transferFrom(msg.sender, address(this), amount),
+            "Transfer failed"
+        );
+        
+        uint256 multiplier = calculateStakeMultiplier(lockDurationDays);
+        
+        if (stakes[msg.sender].amount > 0) {
+            stakes[msg.sender].amount += amount;
+        } else {
+            stakes[msg.sender] = Stake({
+                amount: amount,
+                startTime: block.timestamp,
+                lockDuration: lockDurationDays * 1 days,
+                multiplier: multiplier
+            });
+        }
+        
+        updateReputation(msg.sender, 20, "Staked tokens");
+        
+        emit TokensStaked(msg.sender, amount, lockDurationDays, multiplier);
+    }
+    
+    /**
+     * @notice Queue proposal for execution after timelock
+     */
+    function queueProposal(uint256 proposalId) external {
+        Proposal storage proposal = proposals[proposalId];
+        require(proposal.state == ProposalState.Succeeded, "Proposal not succeeded");
+        
+        proposal.state = ProposalState.Queued;
+        proposal.executionTime = block.timestamp + proposal.timelockDuration;
+        
+        emit ProposalQueued(proposalId, proposal.executionTime);
+    }
+    
+    /**
+     * @notice Execute a queued proposal
+     */
+    function executeProposal(uint256 proposalId) external nonReentrant {
+        Proposal storage proposal = proposals[proposalId];
+        require(proposal.state == ProposalState.Queued, "Proposal not queued");
+        require(block.timestamp >= proposal.executionTime, "Timelock not expired");
+        
+        proposal.state = ProposalState.Executed;
+        
+        for (uint256 i = 0; i < proposal.targets.length; i++) {
+            (bool success, ) = proposal.targets[i].call{value: proposal.values[i]}(
+                proposal.calldatas[i]
+            );
+            require(success, "Execution failed");
+        }
+        
+        // Update proposer reputation
+        updateReputation(proposal.proposer, 50, "Proposal executed");
+        
+        emit ProposalExecuted(proposalId);
+    }
+    
+    /**
+     * @notice Get total voting power including delegations and stakes
+     */
+    function getVotingPower(address account) public view returns (uint256) {
+        uint256 baseVotes = governanceToken.balanceOf(account);
+        
+        // Add staked tokens with multiplier
+        if (stakes[account].amount > 0) {
+            baseVotes += (stakes[account].amount * stakes[account].multiplier) / 100;
+        }
+        
+        // Add delegated votes
+        address[] memory myDelegators = delegators[account];
+        for (uint256 i = 0; i < myDelegators.length; i++) {
+            Delegation memory delegation = delegations[myDelegators[i]];
+            if (delegation.isActive && block.timestamp < delegation.expiryTime) {
+                baseVotes += delegation.delegatedVotes;
+            }
+        }
+        
+        // Apply reputation bonus (max 20% bonus)
+        uint256 reputationBonus = (baseVotes * getReputationBonus(account)) / 100;
+        
+        return baseVotes + reputationBonus;
+    }
+    
+    /**
+     * @notice Calculate conviction multiplier based on lock time
+     */
+    function calculateConvictionMultiplier(uint256 weeks) public pure returns (uint256) {
+        if (weeks == 0) return 100;
+        if (weeks >= 52) return 400; // 4x for 1 year+
+        
+        // Linear scaling: 100 + (weeks * 6)
+        return 100 + (weeks * 6);
+    }
+    
+    /**
+     * @notice Calculate stake multiplier based on lock duration
+     */
+    function calculateStakeMultiplier(uint256 days) public pure returns (uint256) {
+        if (days < 30) return 100;
+        if (days >= 1460) return 300; // 3x for 4 years
+        
+        // Linear scaling
+        return 100 + ((days - 30) * 200) / 1430;
+    }
+    
+    /**
+     * @notice Update user reputation
+     */
+    function updateReputation(
+        address user,
+        uint256 points,
+        string memory reason
+    ) internal {
+        reputations[user].score += points;
+        reputations[user].lastUpdate = block.timestamp;
+        
+        emit ReputationUpdated(user, reputations[user].score, reason);
+    }
+    
+    /**
+     * @notice Get reputation bonus percentage
+     */
+    function getReputationBonus(address account) public view returns (uint256) {
+        uint256 score = reputations[account].score;
+        if (score < 100) return 0;
+        if (score >= 1000) return 20; // Max 20% bonus
+        
+        return (score / 50); // 2% per 100 points
+    }
+    
+    /**
+     * @notice Get quorum requirement based on proposal type
+     */
+    function getQuorumForType(ProposalType proposalType) public view returns (uint256) {
+        if (proposalType == ProposalType.Constitutional) return quorumPercentage + 20;
+        if (proposalType == ProposalType.Emergency) return quorumPercentage - 10;
+        return quorumPercentage;
+    }
+    
+    /**
+     * @notice Get timelock duration based on proposal type
+     */
+    function getTimelockForType(ProposalType proposalType) public pure returns (uint256) {
+        if (proposalType == ProposalType.Constitutional) return 7 days;
+        if (proposalType == ProposalType.Emergency) return 1 days;
+        return TIMELOCK_DELAY;
+    }
+    
+    /**
+     * @notice Square root calculation for quadratic voting
+     */
+    function sqrt(uint256 x) internal pure returns (uint256) {
+        if (x == 0) return 0;
+        uint256 z = (x + 1) / 2;
+        uint256 y = x;
+        while (z < y) {
+            y = z;
+            z = (x / z + z) / 2;
+        }
+        return y;
+    }
+    
+    /**
+     * @notice Remove delegation
+     */
+    function _removeDelegation(address delegator) internal {
+        address delegate = delegations[delegator].delegate;
+        delegations[delegator].isActive = false;
+        
+        // Remove from delegators array
+        address[] storage dels = delegators[delegate];
+        for (uint256 i = 0; i < dels.length; i++) {
+            if (dels[i] == delegator) {
+                dels[i] = dels[dels.length - 1];
+                dels.pop();
+                break;
+            }
+        }
+    }
+    
+    // Emergency functions
+    function pause() external onlyRole(ADMIN_ROLE) {
+        _pause();
+    }
+    
+    function unpause() external onlyRole(ADMIN_ROLE) {
+        _unpause();
+    }
+    
+    receive() external payable {}
 }
