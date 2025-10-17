@@ -1,10 +1,11 @@
-// Web3 Connection Manager
+// Enhanced Web3 Connection Manager
 // js/services/web3-manager.js
 
 import { CONTRACT_CONFIG, ERROR_CODES, TRANSACTION_TIMEOUTS } from '../utils/constants.js';
 
 /**
  * Manages Web3 connection, wallet integration, and network handling
+ * @extends EventTarget
  */
 export class Web3Manager extends EventTarget {
     constructor() {
@@ -15,26 +16,59 @@ export class Web3Manager extends EventTarget {
         this.userAddress = null;
         this.chainId = null;
         this.isConnected = false;
+        this.isConnecting = false;
+        
+        // Bind methods to maintain context
+        this.handleAccountsChanged = this.handleAccountsChanged.bind(this);
+        this.handleChainChanged = this.handleChainChanged.bind(this);
+        this.handleDisconnect = this.handleDisconnect.bind(this);
         
         this.setupEventListeners();
     }
 
     /**
-     * Set up MetaMask event listeners
+     * Set up MetaMask event listeners with proper cleanup
      */
     setupEventListeners() {
-        if (typeof window.ethereum !== 'undefined') {
-            window.ethereum.on('accountsChanged', this.handleAccountsChanged.bind(this));
-            window.ethereum.on('chainChanged', this.handleChainChanged.bind(this));
-            window.ethereum.on('disconnect', this.handleDisconnect.bind(this));
-        }
+        if (!this.isWalletAvailable()) return;
+
+        // Remove existing listeners to prevent duplicates
+        this.removeEventListeners();
+
+        window.ethereum.on('accountsChanged', this.handleAccountsChanged);
+        window.ethereum.on('chainChanged', this.handleChainChanged);
+        window.ethereum.on('disconnect', this.handleDisconnect);
     }
 
     /**
-     * Connect to user's wallet
+     * Remove event listeners
+     */
+    removeEventListeners() {
+        if (!window.ethereum) return;
+
+        window.ethereum.removeListener('accountsChanged', this.handleAccountsChanged);
+        window.ethereum.removeListener('chainChanged', this.handleChainChanged);
+        window.ethereum.removeListener('disconnect', this.handleDisconnect);
+    }
+
+    /**
+     * Connect to user's wallet with improved state management
      * @returns {Promise<boolean>} Success status
      */
     async connectWallet() {
+        // Prevent concurrent connection attempts
+        if (this.isConnecting) {
+            console.warn('Connection already in progress');
+            return false;
+        }
+
+        if (this.isConnected) {
+            console.warn('Wallet already connected');
+            return true;
+        }
+
+        this.isConnecting = true;
+
         try {
             if (!this.isWalletAvailable()) {
                 throw new Error('MetaMask not detected. Please install MetaMask extension.');
@@ -45,14 +79,14 @@ export class Web3Manager extends EventTarget {
                 method: 'eth_requestAccounts'
             });
 
-            if (accounts.length === 0) {
+            if (!accounts || accounts.length === 0) {
                 throw new Error('No accounts found. Please connect your wallet.');
             }
 
             // Set up provider and signer
-            this.provider = new ethers.providers.Web3Provider(window.ethereum);
+            this.provider = new ethers.providers.Web3Provider(window.ethereum, 'any');
             this.signer = this.provider.getSigner();
-            this.userAddress = accounts[0];
+            this.userAddress = ethers.utils.getAddress(accounts[0]); // Checksum address
 
             // Get network information
             const network = await this.provider.getNetwork();
@@ -67,7 +101,11 @@ export class Web3Manager extends EventTarget {
 
             // Dispatch connection event
             this.dispatchEvent(new CustomEvent('wallet:connected', {
-                detail: { address: this.userAddress, chainId: this.chainId }
+                detail: { 
+                    address: this.userAddress, 
+                    chainId: this.chainId,
+                    timestamp: Date.now()
+                }
             }));
 
             return true;
@@ -75,6 +113,8 @@ export class Web3Manager extends EventTarget {
         } catch (error) {
             this.handleConnectionError(error);
             return false;
+        } finally {
+            this.isConnecting = false;
         }
     }
 
@@ -83,11 +123,13 @@ export class Web3Manager extends EventTarget {
      * @returns {boolean} Wallet availability
      */
     isWalletAvailable() {
-        return typeof window.ethereum !== 'undefined';
+        return typeof window !== 'undefined' && 
+               typeof window.ethereum !== 'undefined' &&
+               window.ethereum.isMetaMask === true;
     }
 
     /**
-     * Check existing connection
+     * Check existing connection without requesting access
      * @returns {Promise<boolean>} Connection status
      */
     async checkConnection() {
@@ -100,7 +142,8 @@ export class Web3Manager extends EventTarget {
                 method: 'eth_accounts'
             });
 
-            if (accounts.length > 0) {
+            if (accounts && accounts.length > 0) {
+                // Silently reconnect if already authorized
                 return await this.connectWallet();
             }
 
@@ -112,7 +155,7 @@ export class Web3Manager extends EventTarget {
     }
 
     /**
-     * Switch to the correct network
+     * Switch to the correct network with better error handling
      */
     async switchNetwork() {
         try {
@@ -122,10 +165,16 @@ export class Web3Manager extends EventTarget {
                     chainId: `0x${CONTRACT_CONFIG.network.chainId.toString(16)}` 
                 }]
             });
+
+            // Wait for the switch to complete
+            await this.waitForNetworkSwitch(CONTRACT_CONFIG.network.chainId);
+
         } catch (switchError) {
             // Network doesn't exist, add it
-            if (switchError.code === 4902) {
+            if (switchError.code === 4902 || switchError.code === -32603) {
                 await this.addNetwork();
+            } else if (switchError.code === 4001) {
+                throw new Error('Network switch rejected by user');
             } else {
                 throw switchError;
             }
@@ -133,17 +182,39 @@ export class Web3Manager extends EventTarget {
     }
 
     /**
-     * Add the network to MetaMask
+     * Wait for network switch to complete
+     * @param {number} targetChainId - Expected chain ID
+     * @param {number} maxAttempts - Maximum retry attempts
+     */
+    async waitForNetworkSwitch(targetChainId, maxAttempts = 10) {
+        for (let i = 0; i < maxAttempts; i++) {
+            const network = await this.provider.getNetwork();
+            if (network.chainId === targetChainId) {
+                return;
+            }
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        throw new Error('Network switch timeout');
+    }
+
+    /**
+     * Add the network to MetaMask with validation
      */
     async addNetwork() {
+        const config = CONTRACT_CONFIG.network;
+
+        if (!config.chainId || !config.name || !config.rpcUrl) {
+            throw new Error('Invalid network configuration');
+        }
+
         try {
             await window.ethereum.request({
                 method: 'wallet_addEthereumChain',
                 params: [{
-                    chainId: `0x${CONTRACT_CONFIG.network.chainId.toString(16)}`,
-                    chainName: CONTRACT_CONFIG.network.name,
-                    rpcUrls: [CONTRACT_CONFIG.network.rpcUrl],
-                    blockExplorerUrls: [CONTRACT_CONFIG.network.explorer],
+                    chainId: `0x${config.chainId.toString(16)}`,
+                    chainName: config.name,
+                    rpcUrls: [config.rpcUrl],
+                    blockExplorerUrls: config.explorer ? [config.explorer] : null,
                     nativeCurrency: {
                         name: 'CORE',
                         symbol: 'CORE',
@@ -152,12 +223,15 @@ export class Web3Manager extends EventTarget {
                 }]
             });
         } catch (error) {
-            throw new Error(`Failed to add ${CONTRACT_CONFIG.network.name} network`);
+            if (error.code === 4001) {
+                throw new Error('Network addition rejected by user');
+            }
+            throw new Error(`Failed to add ${config.name} network: ${error.message}`);
         }
     }
 
     /**
-     * Disconnect wallet
+     * Disconnect wallet and clean up state
      */
     disconnect() {
         this.provider = null;
@@ -165,21 +239,26 @@ export class Web3Manager extends EventTarget {
         this.userAddress = null;
         this.chainId = null;
         this.isConnected = false;
+        this.isConnecting = false;
 
-        this.dispatchEvent(new CustomEvent('wallet:disconnected'));
+        this.dispatchEvent(new CustomEvent('wallet:disconnected', {
+            detail: { timestamp: Date.now() }
+        }));
     }
 
     /**
-     * Get user's ETH balance
+     * Get user's native token balance with caching
+     * @param {boolean} fresh - Force fresh fetch
      * @returns {Promise<string>} Balance in ETH
      */
-    async getBalance() {
+    async getBalance(fresh = false) {
         try {
             if (!this.provider || !this.userAddress) {
                 throw new Error('Wallet not connected');
             }
 
-            const balance = await this.provider.getBalance(this.userAddress);
+            const blockTag = fresh ? 'latest' : 'pending';
+            const balance = await this.provider.getBalance(this.userAddress, blockTag);
             return ethers.utils.formatEther(balance);
         } catch (error) {
             console.error('Failed to get balance:', error);
@@ -188,27 +267,40 @@ export class Web3Manager extends EventTarget {
     }
 
     /**
-     * Estimate gas for a transaction
+     * Estimate gas with buffer for safety
      * @param {Object} transaction - Transaction object
-     * @returns {Promise<string>} Gas estimate
+     * @param {number} bufferPercent - Gas buffer percentage (default 20%)
+     * @returns {Promise<Object>} Gas estimate with buffer
      */
-    async estimateGas(transaction) {
+    async estimateGas(transaction, bufferPercent = 20) {
         try {
             if (!this.provider) {
                 throw new Error('Provider not available');
             }
 
             const gasEstimate = await this.provider.estimateGas(transaction);
-            return gasEstimate.toString();
+            const buffer = gasEstimate.mul(bufferPercent).div(100);
+            const gasWithBuffer = gasEstimate.add(buffer);
+
+            return {
+                estimate: gasEstimate.toString(),
+                withBuffer: gasWithBuffer.toString(),
+                buffer: buffer.toString()
+            };
         } catch (error) {
             console.error('Failed to estimate gas:', error);
+            
+            // Provide more specific error messages
+            if (error.code === 'UNPREDICTABLE_GAS_LIMIT') {
+                throw new Error('Transaction may fail - check contract state and parameters');
+            }
             throw error;
         }
     }
 
     /**
-     * Get current gas price
-     * @returns {Promise<string>} Gas price in gwei
+     * Get current gas price with different speed options
+     * @returns {Promise<Object>} Gas prices in gwei
      */
     async getGasPrice() {
         try {
@@ -217,7 +309,14 @@ export class Web3Manager extends EventTarget {
             }
 
             const gasPrice = await this.provider.getGasPrice();
-            return ethers.utils.formatUnits(gasPrice, 'gwei');
+            const gasPriceGwei = ethers.utils.formatUnits(gasPrice, 'gwei');
+
+            // Provide options for different speeds
+            return {
+                standard: gasPriceGwei,
+                fast: (parseFloat(gasPriceGwei) * 1.2).toFixed(2),
+                instant: (parseFloat(gasPriceGwei) * 1.5).toFixed(2)
+            };
         } catch (error) {
             console.error('Failed to get gas price:', error);
             throw error;
@@ -225,24 +324,56 @@ export class Web3Manager extends EventTarget {
     }
 
     /**
-     * Wait for transaction confirmation
+     * Wait for transaction confirmation with detailed updates
      * @param {string} txHash - Transaction hash
      * @param {number} confirmations - Number of confirmations to wait for
      * @param {number} timeout - Timeout in milliseconds
+     * @param {Function} onUpdate - Progress callback
      * @returns {Promise<Object>} Transaction receipt
      */
-    async waitForTransaction(txHash, confirmations = 1, timeout = TRANSACTION_TIMEOUTS.DEFAULT) {
+    async waitForTransaction(
+        txHash, 
+        confirmations = 1, 
+        timeout = TRANSACTION_TIMEOUTS.DEFAULT,
+        onUpdate = null
+    ) {
         try {
             if (!this.provider) {
                 throw new Error('Provider not available');
             }
 
+            if (!ethers.utils.isHexString(txHash, 32)) {
+                throw new Error('Invalid transaction hash');
+            }
+
+            let currentConfirmations = 0;
+
+            // Set up confirmation listener
+            const confirmationListener = (conf) => {
+                currentConfirmations = conf;
+                if (onUpdate) {
+                    onUpdate({ confirmations: conf, required: confirmations });
+                }
+            };
+
             const receipt = await Promise.race([
-                this.provider.waitForTransaction(txHash, confirmations),
+                (async () => {
+                    this.provider.on(txHash, confirmationListener);
+                    const result = await this.provider.waitForTransaction(txHash, confirmations);
+                    this.provider.off(txHash, confirmationListener);
+                    return result;
+                })(),
                 new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('Transaction timeout')), timeout)
+                    setTimeout(() => {
+                        this.provider.off(txHash, confirmationListener);
+                        reject(new Error('Transaction confirmation timeout'));
+                    }, timeout)
                 )
             ]);
+
+            if (!receipt || !receipt.status) {
+                throw new Error('Transaction failed or was reverted');
+            }
 
             return receipt;
         } catch (error) {
@@ -252,7 +383,7 @@ export class Web3Manager extends EventTarget {
     }
 
     /**
-     * Sign a message
+     * Sign a message with EIP-191 standard
      * @param {string} message - Message to sign
      * @returns {Promise<string>} Signed message
      */
@@ -262,37 +393,63 @@ export class Web3Manager extends EventTarget {
                 throw new Error('Signer not available');
             }
 
+            if (!message || typeof message !== 'string') {
+                throw new Error('Invalid message format');
+            }
+
             return await this.signer.signMessage(message);
         } catch (error) {
+            if (error.code === 4001) {
+                throw new Error('Signature rejected by user');
+            }
             console.error('Failed to sign message:', error);
             throw error;
         }
     }
 
     /**
-     * Handle account changes
+     * Handle account changes with proper state updates
      * @param {string[]} accounts - New accounts
      */
     handleAccountsChanged(accounts) {
-        if (accounts.length === 0) {
+        if (!accounts || accounts.length === 0) {
+            console.log('No accounts available, disconnecting');
             this.disconnect();
-        } else if (accounts[0] !== this.userAddress) {
-            this.userAddress = accounts[0];
-            this.dispatchEvent(new CustomEvent('wallet:accountChanged', {
-                detail: { address: this.userAddress }
-            }));
+        } else {
+            const newAddress = ethers.utils.getAddress(accounts[0]);
+            if (newAddress !== this.userAddress) {
+                this.userAddress = newAddress;
+                
+                this.dispatchEvent(new CustomEvent('wallet:accountChanged', {
+                    detail: { 
+                        address: this.userAddress,
+                        timestamp: Date.now()
+                    }
+                }));
+            }
         }
     }
 
     /**
-     * Handle chain changes
-     * @param {string} chainId - New chain ID
+     * Handle chain changes with validation
+     * @param {string} chainId - New chain ID (hex string)
      */
     handleChainChanged(chainId) {
-        this.chainId = parseInt(chainId, 16);
+        const newChainId = parseInt(chainId, 16);
+        
+        if (isNaN(newChainId)) {
+            console.error('Invalid chain ID received:', chainId);
+            return;
+        }
+
+        this.chainId = newChainId;
         
         this.dispatchEvent(new CustomEvent('network:changed', {
-            detail: { chainId: this.chainId }
+            detail: { 
+                chainId: this.chainId,
+                isCorrectNetwork: this.chainId === CONTRACT_CONFIG.network.chainId,
+                timestamp: Date.now()
+            }
         }));
 
         // Reload page on network change for consistency
@@ -300,40 +457,56 @@ export class Web3Manager extends EventTarget {
     }
 
     /**
-     * Handle disconnect
+     * Handle disconnect event
      */
-    handleDisconnect() {
+    handleDisconnect(error) {
+        console.log('Wallet disconnected', error);
         this.disconnect();
     }
 
     /**
-     * Handle connection errors
+     * Handle connection errors with specific error codes
      * @param {Error} error - Connection error
      */
     handleConnectionError(error) {
         let errorCode = ERROR_CODES.NETWORK_ERROR;
-        let message = error.message;
+        let message = error.message || 'Unknown error occurred';
 
         // Map specific error codes
-        if (error.code === 4001) {
-            errorCode = ERROR_CODES.USER_REJECTED;
-            message = 'Connection rejected by user';
-        } else if (error.code === -32002) {
-            errorCode = ERROR_CODES.WALLET_LOCKED;
-            message = 'Wallet is locked. Please unlock and try again.';
-        } else if (error.message.includes('MetaMask')) {
-            errorCode = ERROR_CODES.WALLET_NOT_FOUND;
+        switch (error.code) {
+            case 4001:
+                errorCode = ERROR_CODES.USER_REJECTED;
+                message = 'Connection rejected by user';
+                break;
+            case -32002:
+                errorCode = ERROR_CODES.WALLET_LOCKED;
+                message = 'Wallet is locked. Please unlock and try again.';
+                break;
+            case -32603:
+                errorCode = ERROR_CODES.NETWORK_ERROR;
+                message = 'Internal wallet error. Please try again.';
+                break;
+            default:
+                if (message.toLowerCase().includes('metamask')) {
+                    errorCode = ERROR_CODES.WALLET_NOT_FOUND;
+                }
         }
 
         this.dispatchEvent(new CustomEvent('wallet:error', {
-            detail: { error, errorCode, message }
+            detail: { 
+                error, 
+                errorCode, 
+                message,
+                timestamp: Date.now()
+            }
         }));
 
-        throw { code: errorCode, message };
+        console.error(`Wallet error [${errorCode}]:`, message);
+        throw { code: errorCode, message, originalError: error };
     }
 
     /**
-     * Get network information
+     * Get detailed network information
      * @returns {Object} Network details
      */
     getNetworkInfo() {
@@ -342,52 +515,87 @@ export class Web3Manager extends EventTarget {
             name: CONTRACT_CONFIG.network.name,
             rpcUrl: CONTRACT_CONFIG.network.rpcUrl,
             explorer: CONTRACT_CONFIG.network.explorer,
-            isCorrectNetwork: this.chainId === CONTRACT_CONFIG.network.chainId
+            isCorrectNetwork: this.chainId === CONTRACT_CONFIG.network.chainId,
+            hexChainId: this.chainId ? `0x${this.chainId.toString(16)}` : null
         };
     }
 
     /**
-     * Get connection status
+     * Get comprehensive connection status
      * @returns {Object} Connection information
      */
     getConnectionStatus() {
         return {
             isConnected: this.isConnected,
+            isConnecting: this.isConnecting,
             address: this.userAddress,
             chainId: this.chainId,
-            networkInfo: this.getNetworkInfo()
+            networkInfo: this.getNetworkInfo(),
+            walletAvailable: this.isWalletAvailable()
         };
     }
 
     /**
-     * Format address for display
+     * Format address for display with customizable length
      * @param {string} address - Ethereum address
+     * @param {number} prefixLength - Length of prefix (default 6)
+     * @param {number} suffixLength - Length of suffix (default 4)
      * @returns {string} Formatted address
      */
-    static formatAddress(address) {
-        if (!address) return '';
-        return `${address.slice(0, 6)}...${address.slice(-4)}`;
+    static formatAddress(address, prefixLength = 6, suffixLength = 4) {
+        if (!address || typeof address !== 'string') return '';
+        if (!ethers.utils.isAddress(address)) return address;
+        
+        return `${address.slice(0, prefixLength)}...${address.slice(-suffixLength)}`;
     }
 
     /**
-     * Check if address is valid
+     * Check if address is valid with checksum validation
      * @param {string} address - Address to validate
      * @returns {boolean} Validity
      */
     static isValidAddress(address) {
-        return ethers.utils.isAddress(address);
+        if (!address || typeof address !== 'string') return false;
+        
+        try {
+            return ethers.utils.isAddress(address);
+        } catch {
+            return false;
+        }
     }
 
     /**
-     * Clean up resources
+     * Get checksummed address
+     * @param {string} address - Address to checksum
+     * @returns {string|null} Checksummed address or null
+     */
+    static getChecksumAddress(address) {
+        try {
+            return ethers.utils.getAddress(address);
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Compare two addresses ignoring case
+     * @param {string} address1 - First address
+     * @param {string} address2 - Second address
+     * @returns {boolean} Whether addresses match
+     */
+    static compareAddresses(address1, address2) {
+        try {
+            return ethers.utils.getAddress(address1) === ethers.utils.getAddress(address2);
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Clean up resources and event listeners
      */
     cleanup() {
-        if (typeof window.ethereum !== 'undefined') {
-            window.ethereum.removeAllListeners('accountsChanged');
-            window.ethereum.removeAllListeners('chainChanged');
-            window.ethereum.removeAllListeners('disconnect');
-        }
-        
+        this.removeEventListeners();
         this.disconnect();
     }
 }
