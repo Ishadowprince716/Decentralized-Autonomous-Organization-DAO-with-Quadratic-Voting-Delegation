@@ -11,7 +11,10 @@ import {
   TrendingUp, 
   Eye, 
   User, 
-  Shield 
+  Shield,
+  Send,
+  Loader2,
+  Minimize2
 } from 'lucide-react';
 
 const AdvancedDAOFrontend = () => {
@@ -22,6 +25,7 @@ const AdvancedDAOFrontend = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState({ message: '', type: '' });
+  const [selectedProposal, setSelectedProposal] = useState(null); // New state for proposal detail modal
 
   const [proposalForm, setProposalForm] = useState({
     title: '',
@@ -30,7 +34,7 @@ const AdvancedDAOFrontend = () => {
     amount: ''
   });
   const [voteForm, setVoteForm] = useState({
-    proposalId: '',
+    proposalId: null,
     support: true,
     credits: 1
   });
@@ -47,42 +51,66 @@ const AdvancedDAOFrontend = () => {
     {
       id: 1,
       title: "Upgrade Treasury Management System",
-      description: "Implement automated treasury rebalancing with DeFi integration",
+      description: "Implement automated treasury rebalancing with DeFi integration for greater capital efficiency and returns on idle funds.",
       proposer: "0x1234...5678",
       recipient: "0xabcd...ef01",
       amount: 5.5,
       forVotes: 45,
       againstVotes: 12,
       state: "Active",
+      quorum: 50,
       endTime: Date.now() + 5 * 24 * 60 * 60 * 1000,
       hasVoted: false
     },
     {
       id: 2,
       title: "Community Development Fund",
-      description: "Allocate funds for developer grants and community initiatives",
+      description: "Allocate funds for developer grants and community initiatives to bootstrap new projects on the platform.",
       proposer: "0x2345...6789",
       recipient: "0xbcde...f012",
       amount: 10.0,
       forVotes: 78,
       againstVotes: 5,
       state: "Succeeded",
+      quorum: 50,
       endTime: Date.now() - 2 * 24 * 60 * 60 * 1000,
       hasVoted: true
     },
     {
       id: 3,
       title: "Marketing Campaign Budget",
-      description: "Fund Q4 marketing initiatives and partnerships",
+      description: "Fund Q4 marketing initiatives and partnerships to expand the DAO's visibility and reach new users globally.",
       proposer: "0x3456...789a",
       recipient: "0xcdef...0123",
       amount: 3.2,
       forVotes: 23,
       againstVotes: 34,
       state: "Defeated",
+      quorum: 50,
       endTime: Date.now() - 1 * 24 * 60 * 60 * 1000,
       hasVoted: true
+    },
+    {
+      id: 4,
+      title: "Introduce NFT Governance Token",
+      description: "A major proposal to introduce a new NFT-based token for enhanced governance weight.",
+      proposer: "0x4567...89ab",
+      recipient: "0x0000...0000",
+      amount: 0.0,
+      forVotes: 150,
+      againstVotes: 10,
+      state: "Executed",
+      quorum: 50,
+      endTime: Date.now() - 7 * 24 * 60 * 60 * 1000,
+      hasVoted: false
     }
+  ];
+
+  const mockMembers = [
+    { address: '0x1234567890123456789012345678901234567890', votingPower: 12, delegatedTo: 'Self', joined: '30 days ago' },
+    { address: '0xabcd00000000000000000000000000000000ef01', votingPower: 25, delegatedTo: '0x9876...fedc', joined: '120 days ago' },
+    { address: '0x987600000000000000000000000000000000fedc', votingPower: 5, delegatedTo: 'Self', joined: '10 days ago' },
+    { address: '0x0a1b000000000000000000000000000000002c3d', votingPower: 8, delegatedTo: 'Self', joined: '50 days ago' },
   ];
 
   useEffect(() => {
@@ -122,6 +150,7 @@ const AdvancedDAOFrontend = () => {
     setLoading(true);
     try {
       setTimeout(() => {
+        // Mock connection to show a member user
         setAccount('0x1234567890123456789012345678901234567890');
         setIsConnected(true);
         setMemberInfo({
@@ -175,13 +204,14 @@ const AdvancedDAOFrontend = () => {
           forVotes: 0,
           againstVotes: 0,
           state: "Active",
+          quorum: 50,
           endTime: Date.now() + 7 * 24 * 60 * 60 * 1000,
           hasVoted: false
         };
         setProposals([newProposal, ...proposals]);
         setProposalForm({ title: '', description: '', recipient: '', amount: '' });
         setContractData(prev => ({ ...prev, totalProposals: prev.totalProposals + 1, activeProposals: prev.activeProposals + 1 }));
-        showNotification('Proposal created successfully!', 'success');
+        showNotification('Proposal created successfully! Voting is now open.', 'success');
         setActiveTab('proposals');
         setLoading(false);
       }, 2000);
@@ -206,6 +236,12 @@ const AdvancedDAOFrontend = () => {
           }
           return p;
         }));
+        setSelectedProposal(prev => ({ // Update modal content immediately
+          ...prev, 
+          forVotes: support ? prev.forVotes + credits : prev.forVotes,
+          againstVotes: !support ? prev.againstVotes + credits : prev.againstVotes,
+          hasVoted: true
+        }));
         showNotification(`Vote cast successfully! ${credits} credits for ${support ? 'support' : 'opposition'}`, 'success');
         setLoading(false);
       }, 1500);
@@ -214,6 +250,44 @@ const AdvancedDAOFrontend = () => {
       setLoading(false);
     }
   };
+  
+  const executeProposal = async (proposalId) => {
+    setLoading(true);
+    try {
+        setTimeout(() => {
+            const proposal = proposals.find(p => p.id === proposalId);
+
+            if (proposal.state !== 'Succeeded') {
+              showNotification(`Proposal #${proposalId} cannot be executed. State is ${proposal.state}.`, 'error');
+              setLoading(false);
+              return;
+            }
+
+            setProposals(proposals.map(p => {
+                if (p.id === proposalId) {
+                    // In a real DAO, this would trigger a contract call
+                    return { ...p, state: 'Executed' };
+                }
+                return p;
+            }));
+
+            // Update treasury and active proposals count
+            setContractData(prev => ({
+                ...prev,
+                treasuryBalance: prev.treasuryBalance - proposal.amount,
+                activeProposals: prev.activeProposals - 1 // Assuming Succeeded/Defeated proposals are no longer 'active'
+            }));
+
+            showNotification(`Proposal #${proposalId}: "${proposal.title}" executed successfully! Funds transferred.`, 'success');
+            setLoading(false);
+            setSelectedProposal(null); // Close modal
+        }, 2000);
+    } catch (error) {
+        showNotification('Failed to execute proposal', 'error');
+        setLoading(false);
+    }
+  };
+
 
   const delegateVoting = async () => {
     setLoading(true);
@@ -238,10 +312,171 @@ const AdvancedDAOFrontend = () => {
                    'bg-blue-100 border-blue-500 text-blue-700';
 
     return (
-      <div className={`border-l-4 p-4 mb-6 ${bgColor}`}>
+      <div className={`border-l-4 p-4 mb-6 ${bgColor} rounded-lg`}>
         <div className="flex items-center">
           <AlertCircle className="w-5 h-5 mr-2" />
-          <p>{notification.message}</p>
+          <p className='font-medium'>{notification.message}</p>
+        </div>
+      </div>
+    );
+  };
+  
+  const ProposalDetailModal = ({ proposal, onClose }) => {
+    if (!proposal) return null;
+
+    const totalVotes = proposal.forVotes + proposal.againstVotes;
+    const forPercent = totalVotes > 0 ? (proposal.forVotes / totalVotes) * 100 : 0;
+    const againstPercent = 100 - forPercent;
+    
+    const isMemberAndCanVote = memberInfo?.isMember && proposal.state === 'Active' && !proposal.hasVoted;
+    const hasPassed = proposal.state === 'Succeeded';
+    
+    // Set vote form for this specific proposal
+    useEffect(() => {
+      setVoteForm(prev => ({ 
+        ...prev, 
+        proposalId: proposal.id, 
+        credits: 1 
+      }));
+    }, [proposal.id]);
+
+    return (
+      <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 z-50 transition-opacity">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto transform scale-100 transition-transform">
+          <div className="p-8">
+            <div className="flex justify-between items-start mb-6">
+              <h2 className="text-3xl font-extrabold text-gray-800 flex items-center">
+                Proposal #{proposal.id}
+              </h2>
+              <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600">
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Status and Title */}
+              <div className="flex flex-col md:flex-row md:justify-between md:items-center bg-gray-50 p-4 rounded-lg border">
+                <div>
+                  <h3 className="text-2xl font-semibold mb-1">{proposal.title}</h3>
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStateColor(proposal.state)}`}>
+                    {proposal.state}
+                  </span>
+                </div>
+                <div className="text-right mt-3 md:mt-0">
+                  <p className="text-sm text-gray-500 flex items-center justify-end">
+                    <Clock className="w-4 h-4 mr-1" />
+                    {formatTimeRemaining(proposal.endTime)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Details */}
+              <div className="text-gray-700">
+                <p className="text-lg font-medium mb-2">Description</p>
+                <p className='mb-4'>{proposal.description}</p>
+                
+                <div className='grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm'>
+                    <p><strong>Proposer:</strong> <span className="font-mono text-blue-600">{proposal.proposer.slice(0, 8)}...{proposal.proposer.slice(-6)}</span></p>
+                    <p><strong>Quorum Required:</strong> <span className='font-bold text-gray-800'>{proposal.quorum} Votes</span></p>
+                    {proposal.amount > 0 && (
+                        <>
+                            <p><strong>Funding Amount:</strong> <span className='font-bold text-green-600'>{proposal.amount} ETH</span></p>
+                            <p><strong>Recipient:</strong> <span className="font-mono">{proposal.recipient.slice(0, 8)}...{proposal.recipient.slice(-6)}</span></p>
+                        </>
+                    )}
+                </div>
+              </div>
+
+              {/* Voting Results */}
+              <div className="p-4 bg-white rounded-lg border shadow-sm">
+                <p className="text-lg font-medium mb-3">Current Votes ({totalVotes} Total)</p>
+                <div className="w-full bg-gray-200 rounded-full h-3 flex overflow-hidden">
+                  <div
+                    className="bg-green-500 h-3"
+                    style={{ width: `${forPercent}%` }}
+                  ></div>
+                  <div
+                    className="bg-red-500 h-3"
+                    style={{ width: `${againstPercent}%` }}
+                  ></div>
+                </div>
+                <div className="flex justify-between text-sm mt-2 font-medium">
+                  <span className="text-green-600">For: {proposal.forVotes} ({forPercent.toFixed(1)}%)</span>
+                  <span className="text-red-600">Against: {proposal.againstVotes} ({againstPercent.toFixed(1)}%)</span>
+                </div>
+              </div>
+
+              {/* Action Section: Vote or Execute */}
+              {isMemberAndCanVote && (
+                <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
+                  <h4 className="font-semibold mb-3 flex items-center text-blue-800">
+                    <Vote className='w-5 h-5 mr-2' /> Cast Your Vote
+                  </h4>
+                  <div className='flex gap-4 items-center'>
+                    <input
+                      type="number"
+                      min="1"
+                      max={memberInfo.votingPower + memberInfo.delegatedPower}
+                      value={voteForm.credits}
+                      onChange={(e) => setVoteForm({ ...voteForm, credits: parseInt(e.target.value) })}
+                      className="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Credits"
+                    />
+                    <button
+                      onClick={() => castVote(proposal.id, true, voteForm.credits)}
+                      disabled={loading || voteForm.credits < 1 || voteForm.credits > (memberInfo.votingPower + memberInfo.delegatedPower)}
+                      className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center"
+                    >
+                      <CheckCircle className="w-4 h-4 mr-1" />
+                      Support
+                    </button>
+                    <button
+                      onClick={() => castVote(proposal.id, false, voteForm.credits)}
+                      disabled={loading || voteForm.credits < 1 || voteForm.credits > (memberInfo.votingPower + memberInfo.delegatedPower)}
+                      className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center"
+                    >
+                      <XCircle className="w-4 h-4 mr-1" />
+                      Oppose
+                    </button>
+                  </div>
+                  <p className='text-xs text-gray-500 mt-2'>Your max available voting credits: {memberInfo.votingPower + memberInfo.delegatedPower}</p>
+                </div>
+              )}
+
+              {hasPassed && (
+                <div className="p-4 bg-green-50 rounded-xl border border-green-200 text-center">
+                  <p className="font-bold text-lg text-green-800 mb-3">Proposal Succeeded! Ready for Execution.</p>
+                  <button
+                    onClick={() => executeProposal(proposal.id)}
+                    disabled={loading}
+                    className="w-full md:w-auto px-8 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 flex items-center justify-center mx-auto"
+                  >
+                    {loading ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Send className="w-5 h-5 mr-2" />}
+                    {loading ? 'Executing...' : 'Execute Proposal'}
+                  </button>
+                </div>
+              )}
+              
+              {proposal.hasVoted && proposal.state === 'Active' && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    <p className="text-yellow-800 flex items-center font-medium">
+                      <Eye className="w-4 h-4 mr-2" />
+                      You have already cast your vote on this proposal.
+                    </p>
+                  </div>
+              )}
+              
+              {!memberInfo?.isMember && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                    <p className="text-red-800 flex items-center font-medium">
+                      <AlertCircle className="w-4 h-4 mr-2" />
+                      You must be a DAO member to vote on proposals.
+                    </p>
+                  </div>
+              )}
+
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -250,63 +485,63 @@ const AdvancedDAOFrontend = () => {
   const DashboardTab = () => (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl text-white">
+        <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl text-white shadow-lg">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-blue-100">Total Members</p>
               <p className="text-3xl font-bold">{contractData.memberCount}</p>
             </div>
-            <Users className="w-12 h-12 text-blue-200" />
+            <Users className="w-12 h-12 text-blue-200 opacity-80" />
           </div>
         </div>
         
-        <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl text-white">
+        <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl text-white shadow-lg">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-green-100">Treasury Balance</p>
-              <p className="text-3xl font-bold">{contractData.treasuryBalance} ETH</p>
+              <p className="text-3xl font-bold">{contractData.treasuryBalance.toFixed(2)} ETH</p>
             </div>
-            <Wallet className="w-12 h-12 text-green-200" />
+            <Wallet className="w-12 h-12 text-green-200 opacity-80" />
           </div>
         </div>
 
-        <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl text-white">
+        <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl text-white shadow-lg">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-purple-100">Total Proposals</p>
               <p className="text-3xl font-bold">{contractData.totalProposals}</p>
             </div>
-            <Vote className="w-12 h-12 text-purple-200" />
+            <Vote className="w-12 h-12 text-purple-200 opacity-80" />
           </div>
         </div>
 
-        <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl text-white">
+        <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl text-white shadow-lg">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-orange-100">Active Proposals</p>
               <p className="text-3xl font-bold">{contractData.activeProposals}</p>
             </div>
-            <TrendingUp className="w-12 h-12 text-orange-200" />
+            <TrendingUp className="w-12 h-12 text-orange-200 opacity-80" />
           </div>
         </div>
       </div>
 
       {memberInfo && (
-        <div className="bg-white rounded-xl shadow-lg p-6">
+        <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
           <h3 className="text-xl font-semibold mb-4 flex items-center">
-            <User className="w-6 h-6 mr-2" />
+            <User className="w-6 h-6 mr-2 text-blue-600" />
             Your Member Profile
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="text-center p-4 bg-gray-50 rounded-lg">
+            <div className="text-center p-4 bg-gray-50 rounded-lg border border-gray-100">
               <p className="text-gray-600">Your Voting Power</p>
               <p className="text-2xl font-bold text-blue-600">{memberInfo.votingPower}</p>
             </div>
-            <div className="text-center p-4 bg-gray-50 rounded-lg">
+            <div className="text-center p-4 bg-gray-50 rounded-lg border border-gray-100">
               <p className="text-gray-600">Delegated Power</p>
               <p className="text-2xl font-bold text-green-600">{memberInfo.delegatedPower}</p>
             </div>
-            <div className="text-center p-4 bg-gray-50 rounded-lg">
+            <div className="text-center p-4 bg-gray-50 rounded-lg border border-gray-100">
               <p className="text-gray-600">Total Power</p>
               <p className="text-2xl font-bold text-purple-600">{memberInfo.votingPower + memberInfo.delegatedPower}</p>
             </div>
@@ -315,18 +550,22 @@ const AdvancedDAOFrontend = () => {
             <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
               <p className="text-yellow-800">
                 <Shield className="w-4 h-4 inline mr-1" />
-                You have delegated your voting power to: <span className="font-mono">{memberInfo.delegate}</span>
+                You have delegated your voting power to: <span className="font-mono">{memberInfo.delegate.slice(0, 10)}...</span>
               </p>
             </div>
           )}
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow-lg p-6">
-        <h3 className="text-xl font-semibold mb-4">Recent Activity</h3>
+      <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+        <h3 className="text-xl font-semibold mb-4">Recent Proposals</h3>
         <div className="space-y-3">
           {proposals.slice(0, 3).map(proposal => (
-            <div key={proposal.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+            <div 
+              key={proposal.id} 
+              className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+              onClick={() => setSelectedProposal(proposal)}
+            >
               <div>
                 <p className="font-medium">{proposal.title}</p>
                 <p className="text-sm text-gray-600">by {proposal.proposer.slice(0, 6)}...{proposal.proposer.slice(-4)}</p>
@@ -337,26 +576,35 @@ const AdvancedDAOFrontend = () => {
             </div>
           ))}
         </div>
+        <button 
+          onClick={() => setActiveTab('proposals')} 
+          className='w-full text-center text-blue-600 mt-4 py-2 border-t border-gray-200 hover:text-blue-700 transition-colors'
+        >
+          View All Proposals
+        </button>
       </div>
     </div>
   );
 
   const ProposalsTab = () => (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center flex-wrap gap-4">
         <h2 className="text-2xl font-bold">Governance Proposals</h2>
         <button
           onClick={() => setActiveTab('create')}
-          className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
+          className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center shadow-md"
         >
           <Plus className="w-4 h-4 mr-2" />
-          Create Proposal
+          Create New Proposal
         </button>
       </div>
 
       <div className="space-y-4">
-        {proposals.map(proposal => (
-          <div key={proposal.id} className="bg-white rounded-xl shadow-lg p-6 border hover:shadow-xl transition-shadow">
+        {proposals
+          .sort((a, b) => b.id - a.id) // Sort newest first
+          .map(proposal => (
+          <div key={proposal.id} className="bg-white rounded-xl shadow-lg p-6 border hover:shadow-xl transition-shadow cursor-pointer"
+               onClick={() => setSelectedProposal(proposal)}>
             <div className="flex justify-between items-start mb-4">
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2">
@@ -365,14 +613,14 @@ const AdvancedDAOFrontend = () => {
                     {proposal.state}
                   </span>
                 </div>
-                <p className="text-gray-600 mb-3">{proposal.description}</p>
+                <p className="text-gray-600 mb-3 line-clamp-2">{proposal.description}</p>
                 <div className="flex items-center gap-4 text-sm text-gray-500">
                   <span>Proposed by {proposal.proposer.slice(0, 6)}...{proposal.proposer.slice(-4)}</span>
-                  {proposal.amount > 0 && <span>Amount: {proposal.amount} ETH</span>}
+                  {proposal.amount > 0 && <span>Funding: <span className='font-bold text-green-600'>{proposal.amount} ETH</span></span>}
                 </div>
               </div>
-              <div className="text-right">
-                <p className="text-sm text-gray-500 flex items-center">
+              <div className="text-right ml-4 min-w-[120px]">
+                <p className="text-sm text-gray-500 flex items-center justify-end">
                   <Clock className="w-4 h-4 mr-1" />
                   {formatTimeRemaining(proposal.endTime)}
                 </p>
@@ -381,53 +629,32 @@ const AdvancedDAOFrontend = () => {
 
             <div className="mb-4">
               <div className="flex justify-between text-sm mb-2">
-                <span className="text-green-600">For: {proposal.forVotes}</span>
-                <span className="text-red-600">Against: {proposal.againstVotes}</span>
+                <span className="text-green-600 font-medium">For: {proposal.forVotes}</span>
+                <span className="text-red-600 font-medium">Against: {proposal.againstVotes}</span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div
                   className="bg-green-500 h-2 rounded-l-full"
-                  style={{ width: `${(proposal.forVotes / (proposal.forVotes + proposal.againstVotes + 1)) * 100}%` }}
+                  style={{ width: `${(proposal.forVotes / (proposal.forVotes + proposal.againstVotes || 1)) * 100}%` }}
                 ></div>
               </div>
             </div>
 
             {proposal.state === 'Active' && memberInfo && !proposal.hasVoted && (
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  min="1"
-                  max={memberInfo.votingPower + memberInfo.delegatedPower}
-                  value={voteForm.proposalId === proposal.id ? voteForm.credits : 1}
-                  onChange={(e) => setVoteForm({ ...voteForm, proposalId: proposal.id, credits: parseInt(e.target.value) })}
-                  className="w-20 px-2 py-1 border rounded"
-                  placeholder="Credits"
-                />
-                <button
-                  onClick={() => castVote(proposal.id, true, voteForm.proposalId === proposal.id ? voteForm.credits : 1)}
-                  disabled={loading}
-                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors flex items-center"
-                >
-                  <CheckCircle className="w-4 h-4 mr-1" />
-                  Support
-                </button>
-                <button
-                  onClick={() => castVote(proposal.id, false, voteForm.proposalId === proposal.id ? voteForm.credits : 1)}
-                  disabled={loading}
-                  className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 transition-colors flex items-center"
-                >
-                  <XCircle className="w-4 h-4 mr-1" />
-                  Oppose
-                </button>
+              <div className='text-sm text-blue-600 flex items-center'>
+                <Vote className='w-4 h-4 mr-2' /> Click to Cast Your Vote
               </div>
             )}
-
             {proposal.hasVoted && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <p className="text-blue-800 flex items-center">
-                  <Eye className="w-4 h-4 mr-2" />
-                  You have already voted on this proposal
-                </p>
+              <div className="text-sm text-yellow-600 flex items-center">
+                <Eye className="w-4 h-4 mr-2" />
+                You have voted
+              </div>
+            )}
+            {proposal.state === 'Succeeded' && (
+              <div className="text-sm text-purple-600 flex items-center font-semibold">
+                <Send className="w-4 h-4 mr-2" />
+                Ready for execution
               </div>
             )}
           </div>
@@ -438,7 +665,7 @@ const AdvancedDAOFrontend = () => {
 
   const CreateProposalTab = () => (
     <div className="max-w-2xl mx-auto">
-      <div className="bg-white rounded-xl shadow-lg p-8">
+      <div className="bg-white rounded-xl shadow-lg p-8 border border-gray-100">
         <h2 className="text-2xl font-bold mb-6">Create New Proposal</h2>
         
         <div className="space-y-6">
@@ -448,7 +675,7 @@ const AdvancedDAOFrontend = () => {
               type="text"
               value={proposalForm.title}
               onChange={(e) => setProposalForm({ ...proposalForm, title: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="Enter a clear, descriptive title"
             />
           </div>
@@ -459,7 +686,7 @@ const AdvancedDAOFrontend = () => {
               value={proposalForm.description}
               onChange={(e) => setProposalForm({ ...proposalForm, description: e.target.value })}
               rows={4}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="Provide detailed information about your proposal"
             />
           </div>
@@ -470,7 +697,7 @@ const AdvancedDAOFrontend = () => {
               type="text"
               value={proposalForm.recipient}
               onChange={(e) => setProposalForm({ ...proposalForm, recipient: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
               placeholder="0x... (only needed for funding proposals)"
             />
           </div>
@@ -483,15 +710,15 @@ const AdvancedDAOFrontend = () => {
               min="0"
               value={proposalForm.amount}
               onChange={(e) => setProposalForm({ ...proposalForm, amount: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="0.0 (leave empty for non-funding proposals)"
             />
           </div>
 
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <p className="text-yellow-800 text-sm">
-              <AlertCircle className="w-4 h-4 inline mr-1" />
-              Creating a proposal requires a deposit of 0.1 ETH, which will be returned if the proposal passes or kept by the treasury if it fails.
+            <p className="text-yellow-800 text-sm flex items-start">
+              <AlertCircle className="w-4 h-4 mr-2 mt-1 flex-shrink-0" />
+              Creating a proposal requires a deposit of 0.1 ETH (mocked), which is returned if the proposal passes or kept by the treasury if it fails.
             </p>
           </div>
 
@@ -504,10 +731,11 @@ const AdvancedDAOFrontend = () => {
             </button>
             <button
               onClick={createProposal}
-              disabled={loading}
-              className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              disabled={loading || !proposalForm.title || !proposalForm.description}
+              className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center"
             >
-              {loading ? 'Creating...' : 'Create Proposal'}
+              {loading ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Plus className="w-5 h-5 mr-1" />}
+              {loading ? 'Creating...' : 'Submit Proposal'}
             </button>
           </div>
         </div>
@@ -517,22 +745,23 @@ const AdvancedDAOFrontend = () => {
 
   const DelegationTab = () => (
     <div className="max-w-2xl mx-auto space-y-6">
-      <div className="bg-white rounded-xl shadow-lg p-8">
+      <div className="bg-white rounded-xl shadow-lg p-8 border border-gray-100">
         <h2 className="text-2xl font-bold mb-6">Voting Power Delegation</h2>
         
         {memberInfo?.delegate ? (
           <div className="space-y-4">
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-blue-800">
+              <p className="text-blue-800 font-semibold mb-2 flex items-center">
                 <Shield className="w-5 h-5 inline mr-2" />
-                You have delegated your voting power to:
+                Delegation Active
               </p>
-              <p className="font-mono text-lg mt-2">{memberInfo.delegate}</p>
+              <p className="text-gray-700">Your voting power is currently delegated to:</p>
+              <p className="font-mono text-lg mt-2 break-all">{memberInfo.delegate}</p>
             </div>
             <button
               onClick={() => {
                 setMemberInfo(prev => ({ ...prev, delegate: '' }));
-                showNotification('Delegation revoked successfully!', 'success');
+                showNotification('Delegation revoked successfully! Your voting power is now self-managed.', 'success');
               }}
               className="w-full px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
             >
@@ -542,7 +771,7 @@ const AdvancedDAOFrontend = () => {
         ) : (
           <div className="space-y-6">
             <p className="text-gray-600">
-              Delegate your voting power to a trusted member who can vote on your behalf. You can revoke this delegation at any time.
+              Delegate your voting power to a trusted member who can vote on your behalf. This is useful if you are unable to actively participate in governance. You can revoke this delegation at any time.
             </p>
             
             <div>
@@ -551,7 +780,7 @@ const AdvancedDAOFrontend = () => {
                 type="text"
                 value={delegateAddress}
                 onChange={(e) => setDelegateAddress(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
                 placeholder="0x... (must be a DAO member)"
               />
             </div>
@@ -559,8 +788,9 @@ const AdvancedDAOFrontend = () => {
             <button
               onClick={delegateVoting}
               disabled={!delegateAddress || loading}
-              className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center"
             >
+              {loading ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Users className="w-5 h-5 mr-1" />}
               {loading ? 'Delegating...' : 'Delegate Voting Power'}
             </button>
           </div>
@@ -569,13 +799,51 @@ const AdvancedDAOFrontend = () => {
     </div>
   );
 
+  const MemberExplorerTab = () => (
+    <div className="space-y-6">
+        <h2 className="text-2xl font-bold">DAO Member Explorer</h2>
+        <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+            <p className="text-gray-600 mb-6">
+                Explore the current membership base and see how voting power is distributed across the community.
+            </p>
+
+            <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className='bg-gray-50'>
+                        <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tl-lg">Member Address</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Voting Power</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Delegated To</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tr-lg">Joined</th>
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {mockMembers.map((member, index) => (
+                            <tr key={index} className="hover:bg-gray-50">
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
+                                    {member.address.slice(0, 10)}...{member.address.slice(-6)}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 font-bold">{member.votingPower}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                    {member.delegatedTo === 'Self' ? 'Self' : <span className="font-mono text-xs text-gray-500">{member.delegatedTo.slice(0, 10)}...</span>}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{member.joined}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 font-sans">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         <div className="mb-8">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
-              <h1 className="text-4xl font-bold text-gray-800 mb-2">Advanced DAO</h1>
+              <h1 className="text-4xl font-extrabold text-gray-800 mb-1">Advanced DAO</h1>
               <p className="text-gray-600">Quadratic Voting & Delegation System</p>
             </div>
             
@@ -583,7 +851,7 @@ const AdvancedDAOFrontend = () => {
               <button
                 onClick={connectWallet}
                 disabled={loading}
-                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center"
+                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center shadow-md"
               >
                 <Wallet className="w-5 h-5 mr-2" />
                 {loading ? 'Connecting...' : 'Connect Wallet'}
@@ -591,8 +859,8 @@ const AdvancedDAOFrontend = () => {
             ) : (
               <div className="text-right">
                 <p className="text-sm text-gray-600">Connected as:</p>
-                <p className="font-mono text-sm bg-gray-100 px-3 py-1 rounded">
-                  {account.slice(0, 6)}...{account.slice(-4)}
+                <p className="font-mono text-sm bg-gray-100 px-3 py-1 rounded-lg border border-gray-200">
+                  {account.slice(0, 8)}...{account.slice(-6)}
                 </p>
               </div>
             )}
@@ -602,7 +870,7 @@ const AdvancedDAOFrontend = () => {
         <NotificationBanner />
 
         {isConnected && (!memberInfo || !memberInfo.isMember) && (
-          <div className="mb-8 bg-white rounded-xl shadow-lg p-8 text-center">
+          <div className="mb-8 bg-white rounded-xl shadow-lg p-8 text-center border border-gray-200">
             <h2 className="text-2xl font-bold mb-4">Join the DAO</h2>
             <p className="text-gray-600 mb-6">
               Become a member by paying the membership fee of 0.01 ETH. Your voting power will be calculated using quadratic scaling.
@@ -610,7 +878,7 @@ const AdvancedDAOFrontend = () => {
             <button
               onClick={joinDAO}
               disabled={loading}
-              className="bg-green-600 text-white px-8 py-3 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+              className="bg-green-600 text-white px-8 py-3 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 shadow-md"
             >
               {loading ? 'Joining...' : 'Join DAO (0.01 ETH)'}
             </button>
@@ -620,17 +888,18 @@ const AdvancedDAOFrontend = () => {
         {isConnected && memberInfo?.isMember && (
           <>
             <div className="mb-8">
-              <nav className="flex space-x-1 bg-white p-1 rounded-xl shadow-lg">
+              <nav className="flex space-x-1 bg-white p-1 rounded-xl shadow-lg overflow-x-auto">
                 {[
                   { id: 'dashboard', label: 'Dashboard', icon: TrendingUp },
                   { id: 'proposals', label: 'Proposals', icon: Vote },
                   { id: 'create', label: 'Create', icon: Plus },
-                  { id: 'delegation', label: 'Delegation', icon: Users },
+                  { id: 'delegation', label: 'Delegation', icon: Shield },
+                  { id: 'members', label: 'Members', icon: Users }, // New Member tab
                 ].map(({ id, label, icon: Icon }) => (
                   <button
                     key={id}
                     onClick={() => setActiveTab(id)}
-                    className={`flex items-center px-6 py-3 rounded-lg font-medium transition-colors ${
+                    className={`flex items-center px-6 py-3 rounded-lg font-medium text-sm transition-colors whitespace-nowrap ${
                       activeTab === id
                         ? 'bg-blue-600 text-white shadow-md'
                         : 'text-gray-600 hover:bg-gray-50'
@@ -648,13 +917,20 @@ const AdvancedDAOFrontend = () => {
               {activeTab === 'proposals' && <ProposalsTab />}
               {activeTab === 'create' && <CreateProposalTab />}
               {activeTab === 'delegation' && <DelegationTab />}
+              {activeTab === 'members' && <MemberExplorerTab />}
             </div>
           </>
         )}
 
-        <div className="mt-16 text-center text-gray-500">
+        {/* Proposal Detail Modal */}
+        <ProposalDetailModal 
+          proposal={selectedProposal} 
+          onClose={() => setSelectedProposal(null)}
+        />
+
+        <div className="mt-16 text-center text-gray-500 border-t pt-6 border-gray-200">
           <p>Advanced DAO with Quadratic Voting & Delegation</p>
-          <p className="text-sm mt-1">Built on Core Testnet 2</p>
+          <p className="text-sm mt-1">Built using React and Tailwind CSS</p>
         </div>
       </div>
     </div>
