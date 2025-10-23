@@ -314,7 +314,150 @@ export const UTILS = {
         };
     }
 };
-
+throttle: (func, limit) => {
+        let inThrottle;
+        return function(...args) {
+            if (!inThrottle) {
+                func.apply(this, args);
+                inThrottle = true;
+                setTimeout(() => inThrottle = false, limit);
+            }
+        };
+    },
+    
+    isValidAddress: (address) => {
+        return /^0x[a-fA-F0-9]{40}$/.test(address);
+    },
+    
+    isValidAmount: (amount, min = 0, max = Infinity) => {
+        const num = parseFloat(amount);
+        return !isNaN(num) && num >= min && num <= max;
+    },
+    
+    truncateText: (text, maxLength) => {
+        if (!text || text.length <= maxLength) return text;
+        return text.slice(0, maxLength) + '...';
+    },
+    
+    calculateQuorumPercentage: (forVotes, againstVotes, totalMembers) => {
+        const totalVotes = forVotes + againstVotes;
+        return totalMembers > 0 ? (totalVotes / totalMembers) * 100 : 0;
+    },
+    
+    hasProposalPassed: (forVotes, againstVotes, quorumRequired = 0.1) => {
+        const totalVotes = forVotes + againstVotes;
+        if (totalVotes === 0) return false;
+        return forVotes > againstVotes && (forVotes / totalVotes) >= quorumRequired;
+    },
+    
+    getRemainingTime: (endTime) => {
+        const now = Date.now();
+        const remaining = endTime - now;
+        
+        if (remaining <= 0) return 'Ended';
+        
+        const days = Math.floor(remaining / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((remaining % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+        
+        if (days > 0) return `${days}d ${hours}h`;
+        if (hours > 0) return `${hours}h ${minutes}m`;
+        return `${minutes}m`;
+    },
+    
+    sortByKey: (array, key, ascending = true) => {
+        return [...array].sort((a, b) => {
+            const valueA = a[key];
+            const valueB = b[key];
+            const comparison = valueA < valueB ? -1 : valueA > valueB ? 1 : 0;
+            return ascending ? comparison : -comparison;
+        });
+    },
+    
+    groupBy: (array, key) => {
+        return array.reduce((result, item) => {
+            const group = item[key];
+            if (!result[group]) {
+                result[group] = [];
+            }
+            result[group].push(item);
+            return result;
+        }, {});
+    },
+    
+    parseError: (error) => {
+        if (!error) return 'Unknown error occurred';
+        
+        // Handle MetaMask/wallet errors
+        if (error.code === 4001) return 'Transaction rejected by user';
+        if (error.code === -32002) return 'Request already pending in wallet';
+        if (error.code === -32603) return 'Internal error in wallet';
+        
+        // Handle contract revert errors
+        if (error.message?.includes('insufficient funds')) return 'Insufficient funds for transaction';
+        if (error.message?.includes('already voted')) return 'You have already voted on this proposal';
+        if (error.message?.includes('not a member')) return 'You must be a DAO member to perform this action';
+        if (error.message?.includes('voting ended')) return 'Voting period has ended';
+        
+        // Default to the error message
+        return error.message || error.toString();
+    },
+    
+    copyToClipboard: async (text) => {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (err) {
+            console.error('Failed to copy:', err);
+            return false;
+        }
+    },
+    
+    generateTransactionLink: (txHash) => {
+        return `${CONTRACT_CONFIG.network.explorer}/tx/${txHash}`;
+    },
+    
+    generateAddressLink: (address) => {
+        return `${CONTRACT_CONFIG.network.explorer}/address/${address}`;
+    },
+    
+    sleep: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
+    
+    retryAsync: async (fn, retries = 3, delay = 1000) => {
+        for (let i = 0; i < retries; i++) {
+            try {
+                return await fn();
+            } catch (error) {
+                if (i === retries - 1) throw error;
+                await UTILS.sleep(delay * Math.pow(2, i)); // Exponential backoff
+            }
+        }
+    },
+    
+    sanitizeInput: (input) => {
+        if (typeof input !== 'string') return input;
+        return input.trim().replace(/[<>]/g, '');
+    },
+    
+    validateProposalInput: (title, description) => {
+        const errors = {};
+        
+        if (!title || title.length < PROPOSAL_LIMITS.TITLE_MIN_LENGTH) {
+            errors.title = `Title must be at least ${PROPOSAL_LIMITS.TITLE_MIN_LENGTH} characters`;
+        }
+        if (title && title.length > PROPOSAL_LIMITS.TITLE_MAX_LENGTH) {
+            errors.title = `Title must be less than ${PROPOSAL_LIMITS.TITLE_MAX_LENGTH} characters`;
+        }
+        if (!description || description.length < PROPOSAL_LIMITS.DESCRIPTION_MIN_LENGTH) {
+            errors.description = `Description must be at least ${PROPOSAL_LIMITS.DESCRIPTION_MIN_LENGTH} characters`;
+        }
+        if (description && description.length > PROPOSAL_LIMITS.DESCRIPTION_MAX_LENGTH) {
+            errors.description = `Description must be less than ${PROPOSAL_LIMITS.DESCRIPTION_MAX_LENGTH} characters`;
+        }
+        
+        return { isValid: Object.keys(errors).length === 0, errors };
+    }
+};
 // Environment configuration
 export const ENV = {
     isDevelopment: () => window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1',
