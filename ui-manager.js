@@ -1,16 +1,16 @@
-// UI Manager - Enhanced Version
+// UI Manager - Enhanced Version with Additional Features
 // js/services/ui-manager.js
-
 import { UTILS, TOAST_TYPES, ANIMATION_DURATIONS } from '../utils/constants.js';
 
 /**
- * Manages UI state, rendering, and user interactions with improved performance
- * and better error handling
+ * Manages UI state, rendering, and user interactions with improved performance,
+ * better error handling, and new features like search, pagination, dark mode,
+ * export functionality, and real-time updates.
  */
 export class UIManager extends EventTarget {
     constructor() {
         super();
-        
+       
         this.elements = new Map();
         this.modals = new Map();
         this.toasts = new Set();
@@ -18,32 +18,43 @@ export class UIManager extends EventTarget {
         this.isInitialized = false;
         this.activeModal = null;
         this.previousFocus = null;
-        
+       
         // Debounced and throttled functions
         this.debouncedSearch = UTILS.debounce(this.handleSearch.bind(this), 300);
         this.throttledScroll = UTILS.throttle(this.handleScroll.bind(this), 100);
-        
+       
+        // New features state
+        this.currentPage = 1;
+        this.proposalsPerPage = 10;
+        this.searchQuery = '';
+        this.isDarkMode = localStorage.getItem('darkMode') === 'true';
+        this.favoritedProposals = new Set(JSON.parse(localStorage.getItem('favoritedProposals') || '[]'));
+        this.connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+       
         // Bind methods for event listeners
         this.handleKeydown = this.handleKeydown.bind(this);
         this.handleClickOutside = this.handleClickOutside.bind(this);
         this.handleFocusManagement = this.handleFocusManagement.bind(this);
+        this.handleOnlineStatusChange = this.handleOnlineStatusChange.bind(this);
+        this.handleDarkModeToggle = this.handleDarkModeToggle.bind(this);
     }
 
     /**
-     * Initialize UI manager with error handling
+     * Initialize UI manager with error handling and new feature setup
      */
     async init() {
         if (this.isInitialized) {
             console.warn('UI Manager already initialized');
             return;
         }
-
         try {
             this.cacheElements();
             this.setupEventListeners();
             this.setupAccessibility();
             this.setupIntersectionObserver();
-            
+            this.applyTheme();
+            this.setupOnlineStatusListener();
+           
             this.isInitialized = true;
             this.dispatchEvent(new CustomEvent('ui:initialized'));
             console.log('UI Manager initialized successfully');
@@ -55,27 +66,27 @@ export class UIManager extends EventTarget {
     }
 
     /**
-     * Cache DOM elements with validation
+     * Cache DOM elements with validation (added new selectors for features)
      */
     cacheElements() {
         const selectors = {
             // Navigation
             connectWallet: '#connectWallet',
-            
+           
             // Member info
             memberInfo: '#memberInfo',
             votingPowerDisplay: '#votingPowerDisplay',
             delegationInfo: '#delegationInfo',
-            
+           
             // Stats
             totalMembers: '#totalMembers',
             activeProposals: '#activeProposals',
             totalVotes: '#totalVotes',
-            
+           
             // Hero actions
             joinDAO: '#joinDAO',
             createProposal: '#createProposal',
-            
+           
             // Proposal creation
             proposalCreation: '#proposalCreation',
             proposalForm: '#proposalForm',
@@ -83,11 +94,15 @@ export class UIManager extends EventTarget {
             proposalDescription: '#proposalDescription',
             proposalCategory: '#proposalCategory',
             cancelProposal: '#cancelProposal',
-            
-            // Proposals list
+           
+            // Proposals list (new: search, pagination, export, favorites)
             proposalsList: '#proposalsList',
             proposalFilter: '#proposalFilter',
-            
+            proposalSearch: '#proposalSearch',
+            paginationContainer: '#paginationContainer',
+            exportProposals: '#exportProposals',
+            favoritesToggle: '#favoritesToggle',
+           
             // Voting
             votingSection: '#votingSection',
             votingForm: '#votingForm',
@@ -100,7 +115,7 @@ export class UIManager extends EventTarget {
             delegateVote: '#delegateVote',
             delegateSelect: '#delegateSelect',
             cancelVote: '#cancelVote',
-            
+           
             // Delegation modal
             delegationModal: '#delegationModal',
             delegationForm: '#delegationForm',
@@ -108,15 +123,20 @@ export class UIManager extends EventTarget {
             currentDelegate: '#currentDelegate',
             manageDelegation: '#manageDelegation',
             revokeDelegate: '#revokeDelegate',
-            
+           
             // Loading and notifications
             loadingOverlay: '#loadingOverlay',
             loadingMessage: '#loadingMessage',
-            toastContainer: '#toastContainer'
+            toastContainer: '#toastContainer',
+           
+            // New: Theme toggle, confirmation modal
+            themeToggle: '#themeToggle',
+            confirmationModal: '#confirmationModal',
+            confirmationMessage: '#confirmationMessage',
+            confirmAction: '#confirmAction',
+            cancelConfirm: '#cancelConfirm'
         };
-
         let missingElements = [];
-
         for (const [key, selector] of Object.entries(selectors)) {
             const element = document.querySelector(selector);
             if (element) {
@@ -125,7 +145,6 @@ export class UIManager extends EventTarget {
                 missingElements.push(selector);
             }
         }
-
         if (missingElements.length > 0) {
             console.warn('Missing UI elements:', missingElements);
         }
@@ -138,8 +157,8 @@ export class UIManager extends EventTarget {
         if (this.elements.has(key)) {
             return this.elements.get(key);
         }
-        
-        const element = document.getElementById(key);
+       
+        const element = document.querySelector(`#${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`) || document.getElementById(key);
         if (element) {
             this.elements.set(key, element);
         }
@@ -147,78 +166,67 @@ export class UIManager extends EventTarget {
     }
 
     /**
-     * Set up event listeners with cleanup tracking
+     * Set up event listeners with cleanup tracking (added new listeners)
      */
     setupEventListeners() {
-        // Wallet connection
+        // Existing listeners...
         this.addListener('connectWallet', 'click', () => {
             this.dispatchEvent(new CustomEvent('ui:walletConnectRequested'));
         });
-
-        // DAO actions
         this.addListener('joinDAO', 'click', () => {
             this.dispatchEvent(new CustomEvent('ui:joinDAORequested'));
         });
-
         this.addListener('createProposal', 'click', () => {
             this.showProposalForm();
         });
-
-        // Proposal form
         this.addListener('proposalForm', 'submit', (e) => {
             e.preventDefault();
             this.handleProposalSubmit();
         });
-
         this.addListener('cancelProposal', 'click', () => {
             this.hideProposalForm();
         });
-
-        // Voting form
         this.addListener('votingForm', 'submit', (e) => {
             e.preventDefault();
             this.handleVoteSubmit();
         });
-
         this.addListener('cancelVote', 'click', () => {
             this.hideVotingSection();
         });
-
-        // Credits slider with debounce
-        this.addListener('voteCredits', 'input', 
+        this.addListener('voteCredits', 'input',
             UTILS.debounce((e) => {
                 this.updateVotingCalculations(parseInt(e.target.value) || 1);
             }, 100)
         );
-
-        // Delegation checkbox
         this.addListener('delegateVote', 'change', (e) => {
             this.toggleDelegateSelect(e.target.checked);
         });
-
-        // Delegation modal
         this.addListener('manageDelegation', 'click', () => {
             this.showDelegationModal();
         });
-
         this.addListener('delegationForm', 'submit', (e) => {
             e.preventDefault();
             this.handleDelegationSubmit();
         });
-
         this.addListener('revokeDelegate', 'click', () => {
             this.handleDelegationRevoke();
         });
-
-        // Proposal filter
         this.addListener('proposalFilter', 'change', (e) => {
             this.filterProposals(e.target.value);
         });
-
+       
+        // New listeners
+        this.addListener('proposalSearch', 'input', this.debouncedSearch);
+        this.addListener('exportProposals', 'click', () => this.exportProposalsToCSV());
+        this.addListener('favoritesToggle', 'click', () => this.toggleFavoritesFilter());
+        this.addListener('themeToggle', 'click', this.handleDarkModeToggle);
+       
         // Global event listeners
         document.addEventListener('click', this.handleClickOutside);
         document.addEventListener('keydown', this.handleKeydown);
         document.addEventListener('focusin', this.handleFocusManagement);
+        window.addEventListener('online', this.handleOnlineStatusChange);
+        window.addEventListener('offline', this.handleOnlineStatusChange);
     }
 
     /**
@@ -227,9 +235,8 @@ export class UIManager extends EventTarget {
     addListener(elementKey, event, handler, options = {}) {
         const element = this.getElement(elementKey);
         if (!element) return;
-
         element.addEventListener(event, handler, options);
-        
+       
         const key = `${elementKey}-${event}`;
         if (!this.eventListeners.has(key)) {
             this.eventListeners.set(key, []);
@@ -238,11 +245,15 @@ export class UIManager extends EventTarget {
     }
 
     /**
-     * Handle keyboard events
+     * Handle keyboard events (enhanced with search focus)
      */
     handleKeydown(e) {
         if (e.key === 'Escape') {
             this.closeModals();
+        } else if (e.key === '/' && e.ctrlKey) {
+            e.preventDefault();
+            const searchInput = this.getElement('proposalSearch');
+            if (searchInput) searchInput.focus();
         }
     }
 
@@ -250,7 +261,7 @@ export class UIManager extends EventTarget {
      * Handle clicks outside modals
      */
     handleClickOutside(e) {
-        if (e.target.matches('[data-close-modal]') || 
+        if (e.target.matches('[data-close-modal]') ||
             e.target.closest('[data-close-modal]') ||
             e.target.classList.contains('modal')) {
             this.closeModals();
@@ -258,10 +269,10 @@ export class UIManager extends EventTarget {
     }
 
     /**
-     * Set up accessibility features
+     * Set up accessibility features (added theme announcement)
      */
     setupAccessibility() {
-        // Skip link functionality
+        // Existing...
         const skipLink = document.querySelector('.skip-nav');
         if (skipLink) {
             skipLink.addEventListener('click', (e) => {
@@ -274,8 +285,6 @@ export class UIManager extends EventTarget {
                 }
             });
         }
-
-        // Add live region for dynamic content
         this.setupLiveRegion();
     }
 
@@ -316,6 +325,10 @@ export class UIManager extends EventTarget {
                 entries.forEach(entry => {
                     if (entry.isIntersecting) {
                         entry.target.classList.add('visible');
+                        // New: Load more proposals on scroll
+                        if (entry.target.id === 'load-more-trigger') {
+                            this.loadMoreProposals();
+                        }
                     }
                 });
             },
@@ -324,13 +337,68 @@ export class UIManager extends EventTarget {
     }
 
     /**
+     * Apply theme (new feature: dark mode)
+     */
+    applyTheme() {
+        if (this.isDarkMode) {
+            document.documentElement.classList.add('dark-mode');
+        } else {
+            document.documentElement.classList.remove('dark-mode');
+        }
+        this.announce(`Theme switched to ${this.isDarkMode ? 'dark' : 'light'} mode`);
+    }
+
+    /**
+     * Handle dark mode toggle
+     */
+    handleDarkModeToggle() {
+        this.isDarkMode = !this.isDarkMode;
+        localStorage.setItem('darkMode', this.isDarkMode);
+        this.applyTheme();
+        this.showToast(`Switched to ${this.isDarkMode ? 'dark' : 'light'} mode`, TOAST_TYPES.INFO);
+    }
+
+    /**
+     * Setup online status listener (new feature: offline detection)
+     */
+    setupOnlineStatusListener() {
+        this.handleOnlineStatusChange(); // Initial check
+    }
+
+    /**
+     * Handle online/offline status changes
+     */
+    handleOnlineStatusChange() {
+        const isOnline = navigator.onLine;
+        const statusElement = document.getElementById('network-status') || this.createNetworkStatusElement();
+        statusElement.className = isOnline ? 'online' : 'offline';
+        statusElement.textContent = isOnline ? 'Online' : 'Offline';
+        if (!isOnline) {
+            this.showToast('You are offline. Some features may be limited.', TOAST_TYPES.WARNING);
+        }
+    }
+
+    /**
+     * Create network status element if not exists
+     */
+    createNetworkStatusElement() {
+        const status = document.createElement('div');
+        status.id = 'network-status';
+        status.className = 'network-status';
+        status.setAttribute('aria-live', 'polite');
+        status.setAttribute('role', 'status');
+        document.body.appendChild(status);
+        return status;
+    }
+
+    /**
      * Update connection status with improved UI feedback
      */
     updateConnectionStatus(isConnected, address = null) {
+        // Existing implementation...
         const connectButton = this.getElement('connectWallet');
         const joinButton = this.getElement('joinDAO');
         const createButton = this.getElement('createProposal');
-
         if (connectButton) {
             if (isConnected && address) {
                 connectButton.innerHTML = `
@@ -341,7 +409,7 @@ export class UIManager extends EventTarget {
                 connectButton.classList.remove('btn-primary');
                 connectButton.disabled = true;
                 connectButton.setAttribute('aria-label', `Wallet connected: ${UTILS.formatAddress(address)}`);
-                
+               
                 this.announce('Wallet connected successfully');
             } else {
                 connectButton.innerHTML = `
@@ -354,13 +422,11 @@ export class UIManager extends EventTarget {
                 connectButton.setAttribute('aria-label', 'Connect your wallet');
             }
         }
-
         // Update dependent buttons
         const buttonsToUpdate = [
             { element: joinButton, label: 'Join DAO' },
             { element: createButton, label: 'Create Proposal' }
         ];
-
         buttonsToUpdate.forEach(({ element, label }) => {
             if (element) {
                 element.disabled = !isConnected;
@@ -378,12 +444,11 @@ export class UIManager extends EventTarget {
      * Update member information with enhanced display
      */
     updateMemberInfo(memberInfo) {
+        // Existing implementation...
         const memberInfoElement = this.getElement('memberInfo');
         const votingPowerElement = this.getElement('votingPowerDisplay');
         const joinButton = this.getElement('joinDAO');
-
         if (memberInfo?.isMember) {
-            // Update member info with proper formatting
             if (memberInfoElement) {
                 const contribution = ethers.utils.formatEther(memberInfo.contribution);
                 memberInfoElement.innerHTML = `
@@ -397,32 +462,26 @@ export class UIManager extends EventTarget {
                 `;
                 this.announce('You are an active member');
             }
-
-            // Update voting power display
             if (votingPowerElement) {
                 const votingPower = parseFloat(ethers.utils.formatEther(memberInfo.votingPower));
                 const credits = Math.floor(Math.sqrt(votingPower * 100));
                 const powerDisplay = votingPowerElement.querySelector('.power-display');
-                
+               
                 if (powerDisplay) {
                     powerDisplay.textContent = credits;
                     powerDisplay.setAttribute('aria-label', `${credits} voting credits available`);
                 }
             }
-
-            // Hide join button with animation
             if (joinButton) {
                 joinButton.style.display = 'none';
             }
         } else {
-            // Show non-member state
             if (memberInfoElement) {
                 memberInfoElement.innerHTML = `
                     <p class="status-text">Not a member</p>
                     <p class="text-muted">Join the DAO to participate in governance</p>
                 `;
             }
-
             if (votingPowerElement) {
                 const powerDisplay = votingPowerElement.querySelector('.power-display');
                 if (powerDisplay) {
@@ -430,7 +489,6 @@ export class UIManager extends EventTarget {
                     powerDisplay.setAttribute('aria-label', 'No voting credits');
                 }
             }
-
             if (joinButton) {
                 joinButton.style.display = '';
             }
@@ -441,8 +499,9 @@ export class UIManager extends EventTarget {
      * Update delegation information with better formatting
      */
     updateDelegationInfo(delegationInfo) {
+        // Existing...
         const delegationElement = this.getElement('delegationInfo');
-        
+       
         if (delegationElement) {
             const statusElement = delegationElement.querySelector('#delegationStatus');
             if (statusElement) {
@@ -465,57 +524,132 @@ export class UIManager extends EventTarget {
     }
 
     /**
-     * Render proposals with improved performance using DocumentFragment
+     * Render proposals with improved performance using DocumentFragment and pagination
      */
-    renderProposals(proposals) {
+    renderProposals(proposals, page = 1, search = '', filter = 'all') {
+        this.currentPage = page;
+        this.searchQuery = search;
+        const start = (page - 1) * this.proposalsPerPage;
+        const end = start + this.proposalsPerPage;
+        let filteredProposals = proposals.filter(p => 
+            p.title.toLowerCase().includes(search.toLowerCase()) ||
+            p.description.toLowerCase().includes(search.toLowerCase())
+        );
+       
+        if (filter !== 'all') {
+            filteredProposals = filteredProposals.filter(p => p.status === filter);
+        }
+       
+        const paginatedProposals = filteredProposals.slice(start, end);
         const proposalsElement = this.getElement('proposalsList');
         if (!proposalsElement) return;
-
-        if (!proposals || proposals.length === 0) {
+       
+        if (paginatedProposals.length === 0) {
             proposalsElement.innerHTML = `
                 <div class="empty-state" role="status">
                     <i class="fas fa-inbox" aria-hidden="true"></i>
-                    <h3>No proposals yet</h3>
-                    <p>Be the first to create a proposal and start the governance process!</p>
+                    <h3>No proposals found</h3>
+                    <p>${search ? 'Try a different search term.' : 'Be the first to create a proposal!'}</p>
                 </div>
             `;
             this.announce('No proposals found');
+            this.renderPagination(filteredProposals.length);
             return;
         }
-
-        // Use DocumentFragment for better performance
+       
         const fragment = document.createDocumentFragment();
-        
-        proposals.forEach(proposal => {
+       
+        paginatedProposals.forEach(proposal => {
             const cardElement = this.createProposalCard(proposal);
+            // Add favorite button if favorited
+            const actions = cardElement.querySelector('.proposal-actions');
+            if (this.favoritedProposals.has(proposal.id)) {
+                const favoriteBtn = document.createElement('button');
+                favoriteBtn.className = 'btn btn-outline-favorite';
+                favoriteBtn.innerHTML = '<i class="fas fa-star" aria-label="Remove from favorites"></i>';
+                favoriteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.toggleFavorite(proposal.id);
+                });
+                actions.appendChild(favoriteBtn);
+            }
             fragment.appendChild(cardElement);
         });
-
         proposalsElement.innerHTML = '';
         proposalsElement.appendChild(fragment);
-
-        // Use event delegation instead of individual listeners
         this.setupProposalEventDelegation(proposalsElement, proposals);
-        
-        this.announce(`${proposals.length} proposals loaded`);
+       
+        this.renderPagination(filteredProposals.length);
+        this.announce(`${paginatedProposals.length} proposals loaded (page ${page})`);
     }
 
     /**
-     * Create proposal card DOM element
+     * Render pagination controls
+     */
+    renderPagination(total) {
+        const container = this.getElement('paginationContainer');
+        if (!container) return;
+        const totalPages = Math.ceil(total / this.proposalsPerPage);
+        if (totalPages <= 1) {
+            container.innerHTML = '';
+            return;
+        }
+       
+        let paginationHTML = '<div class="pagination">';
+        if (this.currentPage > 1) {
+            paginationHTML += `<button class="page-btn" data-page="${this.currentPage - 1}">Previous</button>`;
+        }
+        for (let i = 1; i <= totalPages; i++) {
+            paginationHTML += `<button class="page-btn ${i === this.currentPage ? 'active' : ''}" data-page="${i}">${i}</button>`;
+        }
+        if (this.currentPage < totalPages) {
+            paginationHTML += `<button class="page-btn" data-page="${this.currentPage + 1}">Next</button>`;
+        }
+        paginationHTML += '</div>';
+        container.innerHTML = paginationHTML;
+       
+        // Add event listeners
+        container.querySelectorAll('.page-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const page = parseInt(e.target.dataset.page);
+                this.renderProposals(this.getAllProposals() || [], page, this.searchQuery, this.currentFilter);
+            });
+        });
+    }
+
+    /**
+     * Get all proposals (placeholder - integrate with data source)
+     */
+    getAllProposals() {
+        // In real app, fetch from store or API
+        return [];
+    }
+
+    /**
+     * Load more proposals (for infinite scroll)
+     */
+    loadMoreProposals() {
+        if (this.currentPage * this.proposalsPerPage < this.getAllProposals().length) {
+            this.currentPage++;
+            this.renderProposals(this.getAllProposals(), this.currentPage, this.searchQuery, this.currentFilter);
+        }
+    }
+
+    /**
+     * Create proposal card DOM element (added favorite toggle)
      */
     createProposalCard(proposal) {
+        // Existing implementation with minor enhancements...
         const card = document.createElement('div');
         card.className = 'proposal-card';
         card.dataset.id = proposal.id;
         card.setAttribute('role', 'article');
         card.setAttribute('aria-label', `Proposal: ${proposal.title}`);
-
         const totalVotes = parseInt(proposal.forVotes) + parseInt(proposal.againstVotes);
-        const forPercentage = totalVotes > 0 ? 
+        const forPercentage = totalVotes > 0 ?
             (parseInt(proposal.forVotes) / totalVotes * 100).toFixed(1) : 0;
-        const againstPercentage = totalVotes > 0 ? 
+        const againstPercentage = totalVotes > 0 ?
             (parseInt(proposal.againstVotes) / totalVotes * 100).toFixed(1) : 0;
-
         card.innerHTML = `
             <div class="proposal-header">
                 <div>
@@ -524,6 +658,7 @@ export class UIManager extends EventTarget {
                         ${this.capitalizeFirst(proposal.status)}
                     </span>
                 </div>
+                ${this.favoritedProposals.has(proposal.id) ? '<i class="fas fa-star text-warning" aria-label="Favorited"></i>' : ''}
             </div>
             <p class="proposal-description">${this.escapeHtml(this.truncateText(proposal.description, 200))}</p>
             <div class="proposal-stats" role="group" aria-label="Proposal statistics">
@@ -553,146 +688,167 @@ export class UIManager extends EventTarget {
                     <i class="fas fa-eye" aria-hidden="true"></i>
                     View Details
                 </button>
+                <button class="btn btn-outline-favorite" data-action="favorite" data-proposal-id="${proposal.id}"
+                        aria-label="${this.favoritedProposals.has(proposal.id) ? 'Remove from' : 'Add to'} favorites">
+                    <i class="fas ${this.favoritedProposals.has(proposal.id) ? 'fa-star' : 'fa-star-o'}" aria-hidden="true"></i>
+                </button>
             </div>
         `;
-
         return card;
     }
 
     /**
-     * Set up event delegation for proposals
+     * Set up event delegation for proposals (added favorite action)
      */
     setupProposalEventDelegation(container, proposals) {
         container.addEventListener('click', (e) => {
             const button = e.target.closest('[data-action]');
             if (!button) return;
-
             const action = button.dataset.action;
             const proposalId = parseInt(button.dataset.proposalId);
-
             if (action === 'vote') {
                 this.showVotingSection(proposalId, proposals);
             } else if (action === 'view') {
                 this.viewProposalDetails(proposalId, proposals);
+            } else if (action === 'favorite') {
+                this.toggleFavorite(proposalId);
             }
         });
     }
 
     /**
-     * Show proposal creation form with animation
+     * Toggle favorite for proposal
      */
+    toggleFavorite(proposalId) {
+        if (this.favoritedProposals.has(proposalId)) {
+            this.favoritedProposals.delete(proposalId);
+            this.showToast('Removed from favorites', TOAST_TYPES.INFO);
+        } else {
+            this.favoritedProposals.add(proposalId);
+            this.showToast('Added to favorites', TOAST_TYPES.SUCCESS);
+        }
+        localStorage.setItem('favoritedProposals', JSON.stringify([...this.favoritedProposals]));
+        this.renderProposals(this.getAllProposals(), this.currentPage, this.searchQuery, this.currentFilter);
+    }
+
+    /**
+     * Toggle favorites filter
+     */
+    toggleFavoritesFilter() {
+        const isShowingFavorites = this.currentFilter === 'favorites';
+        this.currentFilter = isShowingFavorites ? 'all' : 'favorites';
+        this.renderProposals(this.getAllProposals(), 1, this.searchQuery, this.currentFilter);
+    }
+
+    /**
+     * Export proposals to CSV (new feature)
+     */
+    exportProposalsToCSV() {
+        const proposals = this.getAllProposals();
+        if (proposals.length === 0) {
+            this.showToast('No proposals to export', TOAST_TYPES.WARNING);
+            return;
+        }
+       
+        let csv = 'ID,Title,Description,Status,For Votes,Against Votes,End Date\n';
+        proposals.forEach(p => {
+            csv += `${p.id},"${p.title.replace(/"/g, '""')}","${p.description.replace(/"/g, '""')}","${p.status}",${p.forVotes},${p.againstVotes},"${this.formatDate(p.endTime * 1000)}"\n`;
+        });
+       
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'proposals.csv';
+        a.click();
+        URL.revokeObjectURL(url);
+        this.showToast('Proposals exported to CSV', TOAST_TYPES.SUCCESS);
+    }
+
+    // Existing methods (showProposalForm, hideProposalForm, etc.) remain unchanged...
     showProposalForm() {
         const form = this.getElement('proposalCreation');
         if (!form) return;
-
         form.style.display = 'block';
         requestAnimationFrame(() => {
             form.classList.add('show');
             form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            
-            // Focus first input
+           
             const titleInput = this.getElement('proposalTitle');
             if (titleInput) {
                 setTimeout(() => titleInput.focus(), 300);
             }
         });
-
         this.announce('Proposal creation form opened');
     }
 
-    /**
-     * Hide proposal creation form
-     */
     hideProposalForm() {
         const form = this.getElement('proposalCreation');
         if (!form) return;
-
         form.classList.remove('show');
         setTimeout(() => {
             form.style.display = 'none';
-            
-            // Reset form
+           
             const formElement = this.getElement('proposalForm');
             if (formElement) {
                 formElement.reset();
             }
         }, ANIMATION_DURATIONS.NORMAL);
-
         this.announce('Proposal creation cancelled');
     }
 
-    /**
-     * Show voting section with validation
-     */
     showVotingSection(proposalId, proposals) {
         const proposal = proposals.find(p => p.id === proposalId);
         if (!proposal) {
             this.showToast('Proposal not found', TOAST_TYPES.ERROR);
             return;
         }
-
         const votingSection = this.getElement('votingSection');
         const titleElement = this.getElement('votingProposalTitle');
         const descriptionElement = this.getElement('votingProposalDescription');
-
         if (votingSection) {
             if (titleElement) titleElement.textContent = proposal.title;
             if (descriptionElement) descriptionElement.textContent = proposal.description;
-            
+           
             votingSection.style.display = 'block';
             votingSection.dataset.proposalId = proposalId;
-            
+           
             requestAnimationFrame(() => {
                 votingSection.classList.add('show');
                 votingSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             });
-            
-            // Initialize voting calculations
+           
             this.updateVotingCalculations(1);
-            
+           
             this.announce(`Voting on proposal: ${proposal.title}`);
         }
     }
 
-    /**
-     * Hide voting section
-     */
     hideVotingSection() {
         const votingSection = this.getElement('votingSection');
         if (!votingSection) return;
-
         votingSection.classList.remove('show');
         setTimeout(() => {
             votingSection.style.display = 'none';
-            
-            // Reset form
+           
             const formElement = this.getElement('votingForm');
             if (formElement) {
                 formElement.reset();
             }
         }, ANIMATION_DURATIONS.NORMAL);
-
         this.announce('Voting cancelled');
     }
 
-    /**
-     * Update voting power calculations with validation
-     */
     updateVotingCalculations(credits) {
-        credits = Math.max(1, Math.min(credits, 1000)); // Clamp between 1-1000
-
+        credits = Math.max(1, Math.min(credits, 1000));
         const creditsDisplay = this.getElement('creditsDisplay');
         const powerDisplay = this.getElement('votingPowerCalc');
         const costDisplay = this.getElement('votingCost');
-
         if (creditsDisplay) creditsDisplay.textContent = credits;
         if (powerDisplay) powerDisplay.textContent = Math.sqrt(credits).toFixed(2);
         if (costDisplay) costDisplay.textContent = credits * credits;
     }
 
-    /**
-     * Toggle delegate select dropdown
-     */
     toggleDelegateSelect(enabled) {
         const delegateSelect = this.getElement('delegateSelect');
         if (delegateSelect) {
@@ -701,78 +857,55 @@ export class UIManager extends EventTarget {
         }
     }
 
-    /**
-     * Show delegation modal with focus trap
-     */
     showDelegationModal() {
         const modal = this.getElement('delegationModal');
         if (!modal) return;
-
         this.previousFocus = document.activeElement;
         this.activeModal = modal;
-
         modal.setAttribute('aria-hidden', 'false');
         modal.classList.add('show');
         modal.style.display = 'block';
-        
-        // Focus first input
+       
         requestAnimationFrame(() => {
             const addressInput = this.getElement('delegateAddress');
             if (addressInput) {
                 addressInput.focus();
             }
         });
-
         this.announce('Delegation management opened');
     }
 
-    /**
-     * Hide delegation modal
-     */
     hideDelegationModal() {
         const modal = this.getElement('delegationModal');
         if (!modal) return;
-
         modal.setAttribute('aria-hidden', 'true');
         modal.classList.remove('show');
-        
+       
         setTimeout(() => {
             modal.style.display = 'none';
-            
-            // Reset form
+           
             const formElement = this.getElement('delegationForm');
             if (formElement) {
                 formElement.reset();
             }
-
-            // Restore focus
             if (this.previousFocus) {
                 this.previousFocus.focus();
                 this.previousFocus = null;
             }
         }, ANIMATION_DURATIONS.NORMAL);
-
         this.activeModal = null;
         this.announce('Delegation management closed');
     }
 
-    /**
-     * Close all modals
-     */
     closeModals() {
         this.hideDelegationModal();
-        // Add other modals here as needed
+        this.hideConfirmationModal();
     }
 
-    /**
-     * Handle proposal form submission with validation
-     */
     handleProposalSubmit() {
         const title = this.getElement('proposalTitle')?.value?.trim();
         const description = this.getElement('proposalDescription')?.value?.trim();
         const category = this.getElement('proposalCategory')?.value;
-
-        // Validation
         const errors = [];
         if (!title || title.length < 10) {
             errors.push('Title must be at least 10 characters');
@@ -783,20 +916,15 @@ export class UIManager extends EventTarget {
         if (!category) {
             errors.push('Please select a category');
         }
-
         if (errors.length > 0) {
             this.showValidationErrors(errors);
             return;
         }
-
         this.dispatchEvent(new CustomEvent('ui:proposalCreateRequested', {
             detail: { title, description, category }
         }));
     }
 
-    /**
-     * Handle vote form submission with validation
-     */
     handleVoteSubmit() {
         const votingSection = this.getElement('votingSection');
         const proposalId = parseInt(votingSection?.dataset.proposalId);
@@ -804,10 +932,8 @@ export class UIManager extends EventTarget {
         const voteTypeInput = document.querySelector('input[name="voteType"]:checked');
         const support = voteTypeInput?.value === 'for';
         const isDelegating = this.getElement('delegateVote')?.checked;
-        const delegateAddress = isDelegating ? 
+        const delegateAddress = isDelegating ?
             this.getElement('delegateSelect')?.value : null;
-
-        // Validation
         if (!proposalId) {
             this.showToast('Invalid proposal', TOAST_TYPES.ERROR);
             return;
@@ -820,52 +946,85 @@ export class UIManager extends EventTarget {
             this.showToast('Please allocate at least 1 credit', TOAST_TYPES.ERROR);
             return;
         }
-
         this.dispatchEvent(new CustomEvent('ui:voteRequested', {
             detail: { proposalId, credits, support, delegateAddress }
         }));
     }
 
-    /**
-     * Handle delegation form submission with validation
-     */
     handleDelegationSubmit() {
         const delegateAddress = this.getElement('delegateAddress')?.value?.trim();
-
         if (!delegateAddress) {
             this.showToast('Please enter a delegate address', TOAST_TYPES.ERROR);
             return;
         }
-
-        // Basic Ethereum address validation
         if (!/^0x[a-fA-F0-9]{40}$/.test(delegateAddress)) {
             this.showToast('Invalid Ethereum address', TOAST_TYPES.ERROR);
             return;
         }
-
         this.dispatchEvent(new CustomEvent('ui:delegationRequested', {
             detail: { delegateAddress }
         }));
     }
 
-    /**
-     * Handle delegation revocation with confirmation
-     */
     handleDelegationRevoke() {
-        if (confirm('Are you sure you want to revoke your delegation?')) {
+        this.showConfirmation('Are you sure you want to revoke your delegation?', 'Revoke Delegation', () => {
             this.dispatchEvent(new CustomEvent('ui:delegationRequested', {
                 detail: { delegateAddress: null }
             }));
+        });
+    }
+
+    /**
+     * Show confirmation modal (new feature)
+     */
+    showConfirmation(message, title, confirmCallback, cancelCallback = null) {
+        const modal = this.getElement('confirmationModal');
+        const msgElement = this.getElement('confirmationMessage');
+        if (modal && msgElement) {
+            msgElement.textContent = message;
+            const confirmBtn = this.getElement('confirmAction');
+            confirmBtn.textContent = title;
+            confirmBtn.onclick = confirmCallback;
+           
+            const cancelBtn = this.getElement('cancelConfirm');
+            cancelBtn.onclick = () => {
+                this.hideConfirmationModal();
+                if (cancelCallback) cancelCallback();
+            };
+           
+            this.previousFocus = document.activeElement;
+            this.activeModal = modal;
+            modal.setAttribute('aria-hidden', 'false');
+            modal.classList.add('show');
+            modal.style.display = 'block';
+            confirmBtn.focus();
+            this.announce(`Confirmation: ${title}`);
         }
     }
 
     /**
-     * Show loading overlay with optional message
+     * Hide confirmation modal
      */
+    hideConfirmationModal() {
+        const modal = this.getElement('confirmationModal');
+        if (!modal) return;
+        modal.setAttribute('aria-hidden', 'true');
+        modal.classList.remove('show');
+       
+        setTimeout(() => {
+            modal.style.display = 'none';
+            if (this.previousFocus) {
+                this.previousFocus.focus();
+                this.previousFocus = null;
+            }
+        }, ANIMATION_DURATIONS.NORMAL);
+        this.activeModal = null;
+    }
+
     showLoading(message = 'Loading...') {
         const overlay = this.getElement('loadingOverlay');
         const messageElement = this.getElement('loadingMessage');
-        
+       
         if (messageElement) messageElement.textContent = message;
         if (overlay) {
             overlay.style.display = 'flex';
@@ -873,9 +1032,6 @@ export class UIManager extends EventTarget {
         }
     }
 
-    /**
-     * Hide loading overlay
-     */
     hideLoading() {
         const overlay = this.getElement('loadingOverlay');
         if (overlay) {
@@ -884,26 +1040,18 @@ export class UIManager extends EventTarget {
         }
     }
 
-    /**
-     * Show toast notification with better UX
-     */
     showToast(message, type = TOAST_TYPES.INFO, duration = 5000) {
         const container = this.getElement('toastContainer');
         if (!container) {
             console.warn('Toast container not found');
             return;
         }
-
         const toast = this.createToastElement(message, type);
         container.appendChild(toast);
         this.toasts.add(toast);
-
-        // Show animation
         requestAnimationFrame(() => {
             toast.classList.add('show');
         });
-
-        // Auto remove
         const removeToast = () => {
             toast.classList.remove('show');
             setTimeout(() => {
@@ -913,10 +1061,7 @@ export class UIManager extends EventTarget {
                 }
             }, ANIMATION_DURATIONS.NORMAL);
         };
-
         const timeoutId = setTimeout(removeToast, duration);
-
-        // Allow manual dismissal
         const closeBtn = toast.querySelector('.toast-close');
         if (closeBtn) {
             closeBtn.addEventListener('click', () => {
@@ -926,18 +1071,14 @@ export class UIManager extends EventTarget {
         }
     }
 
-    /**
-     * Create toast element
-     */
     createToastElement(message, type) {
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
         toast.setAttribute('role', 'alert');
         toast.setAttribute('aria-live', 'assertive');
         toast.setAttribute('aria-atomic', 'true');
-
         const icon = this.getToastIcon(type);
-        
+       
         toast.innerHTML = `
             <div class="toast-content">
                 <i class="${icon}" aria-hidden="true"></i>
@@ -947,13 +1088,9 @@ export class UIManager extends EventTarget {
                 <i class="fas fa-times" aria-hidden="true"></i>
             </button>
         `;
-
         return toast;
     }
 
-    /**
-     * Get appropriate icon for toast type
-     */
     getToastIcon(type) {
         const icons = {
             [TOAST_TYPES.SUCCESS]: 'fas fa-check-circle',
@@ -964,16 +1101,12 @@ export class UIManager extends EventTarget {
         return icons[type] || icons[TOAST_TYPES.INFO];
     }
 
-    /**
-     * Update analytics display with animation
-     */
     updateAnalytics(analytics) {
         const updates = [
             { key: 'totalMembers', value: analytics?.totalMembers || 0, label: 'members' },
             { key: 'activeProposals', value: analytics?.activeProposals || 0, label: 'proposals' },
             { key: 'totalVotes', value: analytics?.totalVotes || 0, label: 'votes' }
         ];
-
         updates.forEach(({ key, value, label }) => {
             const element = this.getElement(key);
             if (element) {
@@ -983,16 +1116,12 @@ export class UIManager extends EventTarget {
         });
     }
 
-    /**
-     * Animate number transitions
-     */
     animateValue(element, start, end, duration) {
         if (start === end) return;
-
         const range = end - start;
         const increment = range / (duration / 16);
         let current = start;
-        
+       
         const timer = setInterval(() => {
             current += increment;
             if ((increment > 0 && current >= end) || (increment < 0 && current <= end)) {
@@ -1004,86 +1133,65 @@ export class UIManager extends EventTarget {
     }
 
     /**
-     * Filter proposals by status with animation
+     * Filter proposals by status with animation (now tracks current filter)
      */
     filterProposals(filter) {
-        const proposalCards = document.querySelectorAll('.proposal-card');
-        let visibleCount = 0;
-        
-        proposalCards.forEach(card => {
-            const status = card.querySelector('.proposal-status')?.textContent?.toLowerCase()?.trim();
-            const shouldShow = filter === 'all' || status === filter;
-            
-            if (shouldShow) {
-                card.style.display = 'block';
-                requestAnimationFrame(() => card.classList.add('visible'));
-                visibleCount++;
-            } else {
-                card.classList.remove('visible');
-                setTimeout(() => {
-                    card.style.display = 'none';
-                }, ANIMATION_DURATIONS.FAST);
-            }
-        });
-
-        this.announce(`Showing ${visibleCount} ${filter === 'all' ? 'proposals' : filter + ' proposals'}`);
+        this.currentFilter = filter;
+        this.renderProposals(this.getAllProposals(), 1, this.searchQuery, filter);
     }
 
     /**
-     * View proposal details with modal or navigation
+     * Handle search functionality (implemented)
      */
+    handleSearch(e) {
+        const query = e.target.value;
+        this.renderProposals(this.getAllProposals(), 1, query, this.currentFilter);
+    }
+
+    /**
+     * Handle scroll events (implemented infinite scroll trigger)
+     */
+    handleScroll() {
+        // Observe load more trigger
+        const trigger = document.getElementById('load-more-trigger');
+        if (trigger) {
+            this.observer.observe(trigger);
+        }
+        // Scroll to top button logic
+        const scrollTopBtn = document.getElementById('scroll-top');
+        if (window.scrollY > 300) {
+            scrollTopBtn.style.display = 'block';
+        } else {
+            scrollTopBtn.style.display = 'none';
+        }
+    }
+
     viewProposalDetails(proposalId, proposals) {
         const proposal = proposals.find(p => p.id === proposalId);
         if (!proposal) {
             this.showToast('Proposal not found', TOAST_TYPES.ERROR);
             return;
         }
-
-        // Dispatch event for parent to handle
         this.dispatchEvent(new CustomEvent('ui:proposalViewRequested', {
             detail: { proposalId, proposal }
         }));
-
         this.announce(`Viewing details for: ${proposal.title}`);
     }
 
-    /**
-     * Handle focus management for accessibility
-     */
     handleFocusManagement(e) {
         if (!this.activeModal) return;
-
-        // Ensure focus stays within active modal
         if (!this.activeModal.contains(e.target)) {
             e.preventDefault();
             const focusableElements = this.activeModal.querySelectorAll(
                 'button:not([disabled]), [href]:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])'
             );
-            
+           
             if (focusableElements.length > 0) {
                 focusableElements[0].focus();
             }
         }
     }
 
-    /**
-     * Handle search functionality (placeholder for future implementation)
-     */
-    handleSearch(query) {
-        // To be implemented
-        console.log('Search query:', query);
-    }
-
-    /**
-     * Handle scroll events (placeholder for future implementation)
-     */
-    handleScroll(e) {
-        // To be implemented - could add scroll-to-top button, lazy loading, etc.
-    }
-
-    /**
-     * Escape HTML to prevent XSS attacks
-     */
     escapeHtml(text) {
         if (!text) return '';
         const div = document.createElement('div');
@@ -1091,31 +1199,21 @@ export class UIManager extends EventTarget {
         return div.innerHTML;
     }
 
-    /**
-     * Truncate text to specified length
-     */
     truncateText(text, length) {
         if (!text || text.length <= length) return text;
         return text.substring(0, length).trim() + '...';
     }
 
-    /**
-     * Capitalize first letter of string
-     */
     capitalizeFirst(str) {
         if (!str) return '';
         return str.charAt(0).toUpperCase() + str.slice(1);
     }
 
-    /**
-     * Format date in a user-friendly way
-     */
     formatDate(timestamp) {
         const date = new Date(timestamp);
         const now = new Date();
         const diffTime = date - now;
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
         if (diffDays < 0) {
             return 'Ended';
         } else if (diffDays === 0) {
@@ -1129,24 +1227,14 @@ export class UIManager extends EventTarget {
         }
     }
 
-    /**
-     * Show validation errors in a user-friendly way
-     */
     showValidationErrors(errors) {
         if (!Array.isArray(errors) || errors.length === 0) return;
-
-        // Show first error as toast
         this.showToast(errors[0], TOAST_TYPES.ERROR);
-
-        // Log all errors for debugging
         if (errors.length > 1) {
             console.warn('Validation errors:', errors);
         }
     }
 
-    /**
-     * Batch update multiple UI elements
-     */
     batchUpdate(updates) {
         requestAnimationFrame(() => {
             updates.forEach(({ element, property, value }) => {
@@ -1157,9 +1245,6 @@ export class UIManager extends EventTarget {
         });
     }
 
-    /**
-     * Check if element is visible in viewport
-     */
     isInViewport(element) {
         if (!element) return false;
         const rect = element.getBoundingClientRect();
@@ -1171,14 +1256,10 @@ export class UIManager extends EventTarget {
         );
     }
 
-    /**
-     * Smooth scroll to element
-     */
     scrollToElement(elementOrSelector, options = {}) {
-        const element = typeof elementOrSelector === 'string' 
+        const element = typeof elementOrSelector === 'string'
             ? document.querySelector(elementOrSelector)
             : elementOrSelector;
-
         if (element) {
             element.scrollIntoView({
                 behavior: 'smooth',
@@ -1188,67 +1269,53 @@ export class UIManager extends EventTarget {
         }
     }
 
-    /**
-     * Get current state for debugging
-     */
     getState() {
         return {
             isInitialized: this.isInitialized,
             cachedElements: this.elements.size,
             activeToasts: this.toasts.size,
             activeModal: this.activeModal?.id || null,
-            eventListeners: this.eventListeners.size
+            eventListeners: this.eventListeners.size,
+            // New state
+            currentPage: this.currentPage,
+            searchQuery: this.searchQuery,
+            isDarkMode: this.isDarkMode,
+            favoritedCount: this.favoritedProposals.size
         };
     }
 
-    /**
-     * Clean up all resources and event listeners
-     */
     cleanup() {
         console.log('Cleaning up UI Manager...');
-
-        // Clear all toasts
         this.toasts.forEach(toast => {
             if (toast.parentNode) {
                 toast.parentNode.removeChild(toast);
             }
         });
         this.toasts.clear();
-
-        // Remove all event listeners
         this.eventListeners.forEach((listeners, key) => {
+            const [elementKey, event] = key.split('-');
             listeners.forEach(({ element, handler, options }) => {
-                element.removeEventListener(key.split('-')[1], handler, options);
+                element.removeEventListener(event, handler, options);
             });
         });
         this.eventListeners.clear();
-
-        // Remove global event listeners
         document.removeEventListener('click', this.handleClickOutside);
         document.removeEventListener('keydown', this.handleKeydown);
         document.removeEventListener('focusin', this.handleFocusManagement);
-
-        // Disconnect observer
+        window.removeEventListener('online', this.handleOnlineStatusChange);
+        window.removeEventListener('offline', this.handleOnlineStatusChange);
         if (this.observer) {
             this.observer.disconnect();
             this.observer = null;
         }
-
-        // Clear cached elements
         this.elements.clear();
         this.modals.clear();
-
-        // Reset state
         this.isInitialized = false;
         this.activeModal = null;
         this.previousFocus = null;
-
         console.log('UI Manager cleanup complete');
     }
 
-    /**
-     * Reinitialize the UI Manager
-     */
     async reinit() {
         this.cleanup();
         await this.init();
