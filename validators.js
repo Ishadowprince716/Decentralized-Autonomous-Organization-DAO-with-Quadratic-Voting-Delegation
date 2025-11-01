@@ -23,7 +23,6 @@ export class InputValidator {
         if (typeof address !== 'string') {
             return false;
         }
-
         // Check basic format (0x followed by 40 hex characters)
         const pattern = /^0x[a-fA-F0-9]{40}$/;
         return pattern.test(address);
@@ -45,7 +44,6 @@ export class InputValidator {
                 error: allowEmpty ? null : 'Input is required'
             };
         }
-
         if (typeof input !== 'string') {
             return {
                 isValid: false,
@@ -53,17 +51,12 @@ export class InputValidator {
                 error: 'Input must be a string'
             };
         }
-
-        // Sanitize: trim whitespace and remove dangerous characters
-        // NOTE: We do not truncate here, as validation should fail if the string is too long.
         let sanitized = input
             .trim()
             .replace(/[<>]/g, '') // Basic XSS prevention: remove angle brackets
             .replace(/\0/g, ''); // Remove null bytes
 
-        // Check length requirements
         const len = sanitized.length;
-
         if (!allowEmpty && len === 0) {
             return {
                 isValid: false,
@@ -71,7 +64,6 @@ export class InputValidator {
                 error: 'Input cannot be empty'
             };
         }
-
         if (len < minLength) {
             return {
                 isValid: false,
@@ -79,8 +71,6 @@ export class InputValidator {
                 error: `Input must be at least ${minLength} characters long`
             };
         }
-
-        // CORRECTED: Check for maximum length against the sanitized string.
         if (len > maxLength) {
             return {
                 isValid: false,
@@ -88,7 +78,6 @@ export class InputValidator {
                 error: `Input must be no more than ${maxLength} characters long`
             };
         }
-
         return {
             isValid: true,
             sanitized,
@@ -104,21 +93,16 @@ export class InputValidator {
      * @returns {Object} - Validation result.
      */
     static validateNumber(value, min = -Infinity, max = Infinity) {
-        // Attempt to convert string to number
         let numValue = typeof value === 'string' ? parseFloat(value) : value;
-
         if (typeof numValue !== 'number' || isNaN(numValue) || numValue === null || numValue === undefined) {
             return { isValid: false, value: null, error: 'Value must be a valid number' };
         }
-
         if (numValue < min) {
             return { isValid: false, value: numValue, error: `Value must be at least ${min}` };
         }
-
         if (numValue > max) {
             return { isValid: false, value: numValue, error: `Value must be no more than ${max}` };
         }
-
         return { isValid: true, value: numValue, error: null };
     }
 
@@ -133,33 +117,28 @@ export class InputValidator {
     static validateProposal(data) {
         const errors = [];
         const sanitized = {};
-
         // Validate title
         const titleValidation = this.validateString(
             data.title,
             PROPOSAL_LIMITS.TITLE_MIN_LENGTH,
             PROPOSAL_LIMITS.TITLE_MAX_LENGTH
         );
-
         if (!titleValidation.isValid) {
             errors.push(`Title: ${titleValidation.error}`);
         } else {
             sanitized.title = titleValidation.sanitized;
         }
-
         // Validate description
         const descriptionValidation = this.validateString(
             data.description,
             PROPOSAL_LIMITS.DESCRIPTION_MIN_LENGTH,
             PROPOSAL_LIMITS.DESCRIPTION_MAX_LENGTH
         );
-
         if (!descriptionValidation.isValid) {
             errors.push(`Description: ${descriptionValidation.error}`);
         } else {
             sanitized.description = descriptionValidation.sanitized;
         }
-
         // Validate category
         const validCategories = ['governance', 'treasury', 'technical', 'community'];
         if (typeof data.category !== 'string' || !validCategories.includes(data.category.toLowerCase())) {
@@ -167,7 +146,6 @@ export class InputValidator {
         } else {
             sanitized.category = data.category.toLowerCase();
         }
-
         return {
             isValid: errors.length === 0,
             errors,
@@ -184,21 +162,15 @@ export class InputValidator {
      * @returns {boolean} - Whether parameters are valid
      */
     static validateVoteParameters(proposalId, credits, support) {
-        // Validate proposal ID (must be a non-negative integer)
         if (!Number.isInteger(proposalId) || proposalId < 0) {
             return false;
         }
-
-        // Validate credits (must be an integer between 1 and 100)
         if (!Number.isInteger(credits) || credits < 1 || credits > 100) {
             return false;
         }
-
-        // Validate support
         if (typeof support !== 'boolean') {
             return false;
         }
-
         return true;
     }
 
@@ -208,12 +180,9 @@ export class InputValidator {
      * @returns {Object} - Validation result
      */
     static validateMembershipFee(amount) {
-        // Use the new validateNumber helper
         const minAmount = parseFloat(MEMBERSHIP_FEE.MIN_AMOUNT);
         const maxAmount = parseFloat(MEMBERSHIP_FEE.MAX_AMOUNT);
-
         const validationResult = this.validateNumber(amount, minAmount, maxAmount);
-
         if (!validationResult.isValid) {
             return {
                 isValid: false,
@@ -221,7 +190,6 @@ export class InputValidator {
                 errorCode: ERROR_CODES.INVALID_AMOUNT
             };
         }
-
         return {
             isValid: true,
             amount: validationResult.value,
@@ -238,8 +206,6 @@ export class InputValidator {
         if (typeof email !== 'string') {
             return false;
         }
-
-        // Simple but robust email regex
         const pattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
         return pattern.test(email.trim());
     }
@@ -253,9 +219,7 @@ export class InputValidator {
         if (typeof url !== 'string') {
             return false;
         }
-
         try {
-            // Using the built-in URL constructor is the most reliable way to validate structure
             new URL(url.trim());
             return true;
         } catch {
@@ -285,8 +249,6 @@ export class InputValidator {
         if (typeof color !== 'string') {
             return false;
         }
-
-        // Accepts 3-digit or 6-digit hex colors with a leading hash
         const pattern = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/;
         return pattern.test(color.trim());
     }
@@ -300,8 +262,6 @@ export class InputValidator {
         if (typeof phone !== 'string') {
             return false;
         }
-
-        // Matches formats like (123) 456-7890, 123-456-7890, 123.456.7890, 1234567890
         const pattern = /^\(?([0-9]{3})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})$/;
         return pattern.test(phone.trim());
     }
@@ -346,7 +306,6 @@ export class InputValidator {
                         if (!numCheck.isValid) {
                             fieldErrors.push(`${field} must be a number`);
                         } else {
-                            // Use validated number for range check below
                             sanitized[field] = numCheck.value;
                         }
                         break;
@@ -421,13 +380,11 @@ export class InputValidator {
         if (typeof html !== 'string') {
             return '';
         }
-
-        // Basic HTML sanitization - remove script tags and dangerous attributes
         return html
             .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-            .replace(/on\w+="[^"]*"/gi, '') // Remove simple event handlers
-            .replace(/on\w+='[^']*'/gi, '') // Remove simple event handlers
-            .replace(/(<[^>]+)\s+(href|src|style)\s*=\s*("|')\s*(javascript|vbscript|data):/gi, '$1 $2=$3unsafe:') // Prevent dangerous protocols
+            .replace(/on\w+="[^"]*"/gi, '')
+            .replace(/on\w+='[^']*'/gi, '')
+            .replace(/(<[^>]+)\s+(href|src|style)\s*=\s*("|')\s*(javascript|vbscript|data):/gi, '$1 $2=$3unsafe:')
             .replace(/javascript:/gi, '')
             .replace(/vbscript:/gi, '')
             .replace(/data:/gi, '');
@@ -453,8 +410,6 @@ export class InputValidator {
                 errorCode: ERROR_CODES.INVALID_INPUT
             };
         }
-
-        // Check file size
         if (file.size > maxSize) {
             return {
                 isValid: false,
@@ -462,15 +417,12 @@ export class InputValidator {
                 errorCode: ERROR_CODES.INVALID_INPUT
             };
         }
-
-        // Check file type
         const isTypeAllowed = allowedTypes.some(type => {
             if (type.endsWith('/*')) {
                 return file.type.startsWith(type.slice(0, -2));
             }
             return file.type === type;
         });
-
         if (!isTypeAllowed) {
             return {
                 isValid: false,
@@ -478,11 +430,8 @@ export class InputValidator {
                 errorCode: ERROR_CODES.INVALID_INPUT
             };
         }
-
-        // Check file extension
         const extensionMatch = file.name.split('.').pop();
         const extension = extensionMatch ? ('.' + extensionMatch.toLowerCase()) : '';
-
         if (!allowedExtensions.includes(extension)) {
             return {
                 isValid: false,
@@ -490,7 +439,6 @@ export class InputValidator {
                 errorCode: ERROR_CODES.INVALID_INPUT
             };
         }
-
         return {
             isValid: true,
             error: null
@@ -506,15 +454,10 @@ export class InputValidator {
         if (typeof text !== 'string') {
             return false;
         }
-
-        // Basic profanity filter - in production, use a more comprehensive solution
         const inappropriateWords = [
             'spam', 'scam', 'hack', 'exploit', 'cheat', 'phishing',
-            // Add more words as needed
         ];
-
         const lowercaseText = text.toLowerCase();
-        // Use regex with word boundaries to avoid false positives (e.g., "cheese" containing "cheat")
         const regex = new RegExp(`\\b(${inappropriateWords.join('|')})\\b`, 'i');
         return regex.test(lowercaseText);
     }
@@ -531,23 +474,13 @@ export class InputValidator {
      */
     static checkRateLimit(key, limit, window) {
         const now = Date.now();
-        
         let attempts = rateLimitStore.get(key) || [];
-
-        // Remove old attempts outside the window
         attempts = attempts.filter(timestamp => now - timestamp < window);
-
-        // Check if limit exceeded
         if (attempts.length >= limit) {
             return false; // Rate limit exceeded
         }
-
-        // Add current attempt
         attempts.push(now);
-        
-        // Update the in-memory store
         rateLimitStore.set(key, attempts);
-
         return true; // Action allowed
     }
 }
