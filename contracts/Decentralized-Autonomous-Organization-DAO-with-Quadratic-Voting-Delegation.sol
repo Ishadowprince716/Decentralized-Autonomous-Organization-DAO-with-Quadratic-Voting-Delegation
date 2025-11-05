@@ -1,228 +1,204 @@
-// --- NEW: REPUTATION HELPER FUNCTIONS ---
-    function _updateReputationForVote(address _voter, uint256 _proposalId, bool _support) internal {
-        ReputationScore storage rep = reputation[_voter];
-        Proposal storage p = proposals[_proposalId];
-        uint256 currentScore = rep.score;
-        uint256 timeSinceLastUpdate = block.timestamp.sub(rep.lastUpdate);
-        
-        // Decay score over time
-        if (timeSinceLastUpdate > 1 days) {
-            rep.score = rep.score.sub(timeSinceLastUpdate.div(1 days));
-            if (rep.score < 100) rep.score = 100;
-        }
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.19;
 
-        // Reward for participating
-        rep.participationRate = rep.participationRate.add(1);
-        rep.score = rep.score.add(1);
+// Minimal ERC20 interface
+interface IERC20 {
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function transfer(address to, uint256 amount) external returns (bool);
+    function balanceOf(address owner) external view returns (uint256);
+}
 
-        // Reward for aligning with winning side or successful proposals
-        if (p.hasEnded && p.passed) {
-            if ((_support && p.yesVotes > p.noVotes) || (!_support && p.noVotes > p.yesVotes)) {
-                rep.score = rep.score.add(10);
-                if (_voter == p.proposer) {
-                    rep.successfulProposals = rep.successfulProposals.add(1);
-                    rep.score = rep.score.add(50);
-                }
-            }
-        }
+contract QuadraticDAO {
+    IERC20 public immutable govToken;
+    uint256 public proposalCount;
+    uint256 public proposalStakeThreshold; // min stake to create proposal (in tokens)
 
-        rep.lastUpdate = block.timestamp;
-        emit ReputationUpdated(_voter, rep.score, rep.streakCount);
-    }
+    struct Proposal {
+        uint256 id;
+        address proposer;
+        string description;
+        uint256 startBlock;
+        uint256 endBlock;
+        uint256 forVotes;
+        uint256 againstVotes;
+        bool finalized;
+    }
 
-    function _updateReputationForDelegation(address _delegator, address _delegatee) internal {
-        ReputationScore storage delegatorRep = reputation[_delegator];
-        ReputationScore storage delegateeRep = reputation[_delegatee];
-        
-        // Reward delegatee for receiving trust
-        delegateeRep.delegationTrust = delegateeRep.delegationTrust.add(1);
-        delegateeRep.score = delegateeRep.score.add(20);
-        delegateeRep.lastUpdate = block.timestamp;
+    // user staking & delegation
+    mapping(address => uint256) public stakeOf;
+    mapping(address => address) public delegateOf; // who user delegates to (default self)
+    mapping(address => uint256) public delegateWeight; // sum of sqrt(stake) of delegators
 
-        // Minor score boost for delegator
-        delegatorRep.score = delegatorRep.score.add(5);
-        delegatorRep.lastUpdate = block.timestamp;
-        
-        emit ReputationUpdated(_delegator, delegatorRep.score, delegatorRep.streakCount);
-        emit ReputationUpdated(_delegatee, delegateeRep.score, delegateeRep.streakCount);
-    }
+    // proposals
+    mapping(uint256 => Proposal) public proposals;
+    // per-proposal votes by delegate (so delegate cannot vote twice)
+    mapping(uint256 => mapping(address => bool)) public hasVoted;
 
-    // --- NEW: TOKEN HOLDER VOTING ---
-    IERC20 public governanceToken;
+    // Events
+    event Staked(address indexed user, uint256 amount);
+    event Unstaked(address indexed user, uint256 amount);
+    event Delegated(address indexed user, address indexed from, address indexed to);
+    event ProposalCreated(uint256 indexed id, address indexed proposer, uint256 startBlock, uint256 endBlock);
+    event Voted(uint256 indexed proposalId, address indexed delegate, bool support, uint256 weight);
+    event ProposalFinalized(uint256 indexed proposalId, bool passed);
 
-    function setGovernanceToken(address _tokenAddress) external onlyOwner {
-        require(address(governanceToken) == address(0), "Token already set");
-        governanceToken = IERC20(_tokenAddress);
-    }
+    constructor(IERC20 _govToken, uint256 _proposalStakeThreshold) {
+        govToken = _govToken;
+        proposalStakeThreshold = _proposalStakeThreshold;
+    }
 
-    function _getGovernanceTokenBalance(address _holder) internal view returns (uint256) {
-        if (address(governanceToken) == address(0)) {
-            return 0;
-        }
-        return governanceToken.balanceOf(_holder);
-    }
+    // --------- Utility: integer sqrt (Babylonian method) ----------
+    function _isqrt(uint256 x) internal pure returns (uint256) {
+        if (x == 0) return 0;
+        // initial guess: 2^(log2(x)/2)
+        uint256 z = x;
+        uint256 r = 1;
+        if (z >> 128 > 0) { z >>= 128; r <<= 64; }
+        if (z >> 64 > 0) { z >>= 64; r <<= 32; }
+        if (z >> 32 > 0) { z >>= 32; r <<= 16; }
+        if (z >> 16 > 0) { z >>= 16; r <<= 8; }
+        if (z >> 8 > 0) { z >>= 8; r <<= 4; }
+        if (z >> 4 > 0) { z >>= 4; r <<= 2; }
+        if (z >> 2 > 0) { r <<= 1; }
 
-    function voteAsTokenHolder(
-        uint256 _proposalId,
-        bool _support
-    ) external nonReentrant whenNotPaused {
-        require(proposalVotingType[_proposalId] == VotingMechanism.TokenHolderVoting, "Not token holder voting");
-        require(governanceToken.balanceOf(msg.sender) > 0, "No governance tokens");
-        
-        _castVoteInternal(_proposalId, _support, governanceToken.balanceOf(msg.sender), msg.sender);
-    }
+        // refine
+        for (uint i = 0; i < 7; i++) {
+            r = (r + x / r) >> 1;
+        }
+        uint256 r1 = x / r;
+        return r < r1 ? r : r1;
+    }
 
-    // --- ENHANCED INTERNAL VOTING LOGIC ---
-    function _castVoteInternal(
-        uint256 _proposalId,
-        bool _support,
-        uint256 _credits,
-        address _voter
-    ) internal {
-        Proposal storage p = proposals[_proposalId];
-        require(!p.hasEnded, "Proposal has ended");
-        require(!p.voters[_voter], "Already voted");
+    // --------- Staking and Delegation ----------
+    function stake(uint256 amount) external {
+        require(amount > 0, "amount>0");
+        // pull tokens
+        require(govToken.transferFrom(msg.sender, address(this), amount), "transferFrom failed");
 
-        if (_support) {
-            p.yesVotes = p.yesVotes.add(_credits);
-        } else {
-            p.noVotes = p.noVotes.add(_credits);
-        }
+        uint256 oldStake = stakeOf[msg.sender];
+        uint256 newStake = oldStake + amount;
+        stakeOf[msg.sender] = newStake;
 
-        p.voters[_voter] = true;
-        
-        // Update reputation based on vote
-        _updateReputationForVote(_voter, _proposalId, _support);
-        
-        emit VoteCasted(_voter, _proposalId, _support, _credits);
-        
-        // Check if proposal quorum/threshold is met
-        if (block.timestamp >= p.endTime) {
-            _endProposal(_proposalId);
-        }
-    }
-    
-    // --- NEW: DELEGATION FUNCTIONS ---
-    function delegateVotingPower(address _delegatee, uint256 _expiry) external whenNotPaused {
-        require(_delegatee != address(0), "Invalid delegatee");
-        require(_delegatee != msg.sender, "Cannot delegate to yourself");
-        require(_expiry > block.timestamp, "Expiry must be in the future");
-        
-        LiquidDemocracy storage ld = liquidDemocracy[1]; // Using a placeholder for now
-        require(ld.delegates[msg.sender] == address(0), "Already delegated");
-        
-        // Ensure no delegation loops
-        address current = _delegatee;
-        uint256 depth = 0;
-        while (ld.delegates[current] != address(0) && depth < ld.maxDelegationDepth) {
-            require(ld.delegates[current] != msg.sender, "Delegation loop detected");
-            current = ld.delegates[current];
-            depth++;
-        }
-        
-        ld.delegates[msg.sender] = _delegatee;
-        members[msg.sender].delegationExpiry = uint64(_expiry);
-        
-        // Transfer voting power
-        uint256 votingPower = members[msg.sender].votingPower;
-        members[msg.sender].delegatedPower = uint128(votingPower);
-        members[msg.sender].votingPower = 0;
-        
-        _addDelegatedPower(_delegatee, votingPower);
-        _updateReputationForDelegation(msg.sender, _delegatee);
-    }
+        // ensure default delegation to self
+        if (delegateOf[msg.sender] == address(0)) {
+            delegateOf[msg.sender] = msg.sender;
+        }
 
-    function undelegateVotingPower() external {
-        LiquidDemocracy storage ld = liquidDemocracy[1];
-        address delegatee = ld.delegates[msg.sender];
-        require(delegatee != address(0), "Not delegated");
-        
-        uint256 delegatedPower = members[msg.sender].delegatedPower;
-        
-        // Remove voting power from delegatee
-        _removeDelegatedPower(delegatee, delegatedPower);
-        
-        // Restore voting power to delegator
-        members[msg.sender].votingPower = uint128(delegatedPower);
-        members[msg.sender].delegatedPower = 0;
-        members[msg.sender].delegationExpiry = 0;
-        delete ld.delegates[msg.sender];
-    }
+        // update delegate weight: delta = sqrt(newStake) - sqrt(oldStake)
+        address del = delegateOf[msg.sender];
+        uint256 prevS = _isqrt(oldStake);
+        uint256 newS = _isqrt(newStake);
+        if (newS > prevS) {
+            delegateWeight[del] += (newS - prevS);
+        }
 
-    function _addDelegatedPower(address _delegatee, uint256 _amount) internal {
-        members[_delegatee].votingPower += uint128(_amount);
-    }
+        emit Staked(msg.sender, amount);
+    }
 
-    function _removeDelegatedPower(address _delegatee, uint256 _amount) internal {
-        members[_delegatee].votingPower -= uint128(_amount);
-    }
+    function unstake(uint256 amount) external {
+        require(amount > 0, "amount>0");
+        uint256 oldStake = stakeOf[msg.sender];
+        require(oldStake >= amount, "not enough stake");
+        uint256 newStake = oldStake - amount;
+        stakeOf[msg.sender] = newStake;
 
-    // --- NEW: MULTI-SIG PROPOSALS ---
-    function submitMultiSigProposal(
-        address[] memory _signers,
-        uint256 _requiredSignatures,
-        bytes32 _proposalHash
-    ) external onlyAuthorized returns (uint256) {
-        require(_requiredSignatures > 0 && _requiredSignatures <= _signers.length, "Invalid signature count");
-        require(_signers.length > 0, "No signers provided");
-        
-        uint256 proposalId = proposalCounter++;
-        
-        MultiSigProposal storage p = multiSigProposals[proposalId];
-        p.signers = _signers;
-        p.requiredSignatures = _requiredSignatures;
-        p.proposalHash = _proposalHash;
-        p.expiryTime = block.timestamp.add(7 days);
-        
-        return proposalId;
-    }
+        // update delegate weight: delta = sqrt(newStake) - sqrt(oldStake) (negative)
+        address del = delegateOf[msg.sender];
+        uint256 prevS = _isqrt(oldStake);
+        uint256 newS = _isqrt(newStake);
+        if (prevS > newS) {
+            delegateWeight[del] -= (prevS - newS);
+        }
 
-    function signMultiSigProposal(uint256 _proposalId) external {
-        MultiSigProposal storage p = multiSigProposals[_proposalId];
-        require(block.timestamp <= p.expiryTime, "Proposal expired");
-        require(!p.hasSigned[msg.sender], "Already signed");
-        
-        bool isSigner = false;
-        for (uint256 i = 0; i < p.signers.length; i++) {
-            if (p.signers[i] == msg.sender) {
-                isSigner = true;
-                break;
-            }
-        }
-        require(isSigner, "Not an authorized signer");
-        
-        p.hasSigned[msg.sender] = true;
-        p.signatureTimestamp[msg.sender] = block.timestamp;
-        p.currentSignatures = p.currentSignatures.add(1);
-        
-        emit MultiSigSigned(_proposalId, msg.sender);
-    }
+        require(govToken.transfer(msg.sender, amount), "transfer failed");
+        emit Unstaked(msg.sender, amount);
+    }
 
-    function executeMultiSigProposal(uint256 _proposalId) external onlyAuthorized {
-        MultiSigProposal storage p = multiSigProposals[_proposalId];
-        require(p.currentSignatures >= p.requiredSignatures, "Not enough signatures");
-        
-        // Execution logic goes here
-        // For example, trigger a function based on p.proposalHash
-        
-        emit MultiSigExecuted(_proposalId);
-    }
+    // change delegate
+    function setDelegate(address to) external {
+        require(to != address(0), "invalid delegate");
+        address old = delegateOf[msg.sender];
+        if (old == address(0)) old = msg.sender; // if never set
+        if (to == address(0)) to = msg.sender;
 
-    // --- ENHANCED VOTING ELIGIBILITY CHECK ---
-    function _checkVotingEligibility(address _voter, uint256 _proposalId) internal view returns (bool) {
-        Proposal storage p = proposals[_proposalId];
-        if (p.hasEnded) return false;
-        if (p.voters[_voter]) return false;
-        
-        // Check liquid democracy delegation
-        if (liquidDemocracy[1].delegates[_voter] != address(0)) {
-            return false; // Cannot vote if you have delegated your power
-        }
-        
-        return true;
-    }
-    
-    // --- NEW: EVENT EMISSIONS ---
-    event MultiSigSigned(uint256 indexed proposalId, address indexed signer);
-    event MultiSigExecuted(uint256 indexed proposalId);
-    event GovernanceTokenSet(address indexed tokenAddress);
+        require(old != to, "already delegated");
+
+        uint256 s = stakeOf[msg.sender];
+        uint256 sqrtS = _isqrt(s);
+
+        // adjust delegate weights
+        if (sqrtS > 0) {
+            // subtract from old
+            delegateWeight[old] -= sqrtS;
+            // add to new
+            delegateWeight[to] += sqrtS;
+        }
+
+        delegateOf[msg.sender] = to;
+        emit Delegated(msg.sender, old, to);
+    }
+
+    // --------- Proposals ----------
+    function createProposal(string calldata description, uint256 votingBlocks) external returns (uint256) {
+        require(stakeOf[msg.sender] >= proposalStakeThreshold, "insufficient stake to propose");
+        require(votingBlocks > 0, "votingBlocks>0");
+
+        proposalCount++;
+        uint256 start = block.number;
+        uint256 end = start + votingBlocks;
+
+        proposals[proposalCount] = Proposal({
+            id: proposalCount,
+            proposer: msg.sender,
+            description: description,
+            startBlock: start,
+            endBlock: end,
+            forVotes: 0,
+            againstVotes: 0,
+            finalized: false
+        });
+
+        emit ProposalCreated(proposalCount, msg.sender, start, end);
+        return proposalCount;
+    }
+
+    // delegates vote; weight = delegateWeight at call-time (snapshot)
+    function vote(uint256 proposalId, bool support) external {
+        Proposal storage p = proposals[proposalId];
+        require(p.id == proposalId && p.startBlock > 0, "invalid proposal");
+        require(block.number >= p.startBlock && block.number <= p.endBlock, "voting closed");
+        require(!hasVoted[proposalId][msg.sender], "already voted");
+
+        uint256 weight = delegateWeight[msg.sender];
+        require(weight > 0, "no delegated weight");
+
+        hasVoted[proposalId][msg.sender] = true;
+
+        if (support) p.forVotes += weight;
+        else p.againstVotes += weight;
+
+        emit Voted(proposalId, msg.sender, support, weight);
+    }
+
+    // finalize: anyone can call after voting ends
+    function finalizeProposal(uint256 proposalId) external {
+        Proposal storage p = proposals[proposalId];
+        require(p.id == proposalId && p.startBlock > 0, "invalid proposal");
+        require(block.number > p.endBlock, "voting still open");
+        require(!p.finalized, "already finalized");
+
+        p.finalized = true;
+        bool passed = p.forVotes > p.againstVotes;
+        emit ProposalFinalized(proposalId, passed);
+        // Note: No automatic execution of actions. This contract only records outcomes.
+    }
+
+    // ------- Views -------
+    function getDelegateWeight(address who) external view returns (uint256) {
+        return delegateWeight[who];
+    }
+
+    function getProposal(uint256 id) external view returns (Proposal memory) {
+        return proposals[id];
+    }
+}
