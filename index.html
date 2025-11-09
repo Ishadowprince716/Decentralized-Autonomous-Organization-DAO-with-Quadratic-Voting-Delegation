@@ -57,6 +57,10 @@
                 <div id="votingPowerDisplay" class="voting-power">
                     <div class="power-display">0</div>
                     <p class="power-label">Credits Available</p>
+                    <div class="power-info">
+                        <i class="fas fa-info-circle"></i>
+                        <span>Quadratic voting: Cost = votes²</span>
+                    </div>
                 </div>
             </section>
 
@@ -75,6 +79,10 @@
                         <span class="stat-label">Total Votes</span>
                         <span class="stat-value" id="totalVotes">1,543</span>
                     </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Treasury</span>
+                        <span class="stat-value" id="treasuryBalance">125 ETH</span>
+                    </div>
                 </div>
             </section>
         </aside>
@@ -89,6 +97,20 @@
                         Participate in fair, transparent governance where your voice matters.
                         Join our DAO and help shape the future through quadratic voting.
                     </p>
+                    <div class="hero-features">
+                        <div class="feature">
+                            <i class="fas fa-shield-alt"></i>
+                            <span>Secure & Transparent</span>
+                        </div>
+                        <div class="feature">
+                            <i class="fas fa-balance-scale"></i>
+                            <span>Fair Voting</span>
+                        </div>
+                        <div class="feature">
+                            <i class="fas fa-users"></i>
+                            <span>Community Driven</span>
+                        </div>
+                    </div>
                     <div class="hero-actions">
                         <button id="joinDAO" class="btn btn-primary" disabled>
                             <i class="fas fa-users"></i>
@@ -108,23 +130,37 @@
                 <form id="proposalForm" class="proposal-form">
                     <div class="form-group">
                         <label for="proposalTitle">Title *</label>
-                        <input type="text" id="proposalTitle" required maxlength="100">
+                        <input type="text" id="proposalTitle" required maxlength="100" 
+                               placeholder="Enter a clear, descriptive title">
                     </div>
                     
                     <div class="form-group">
                         <label for="proposalDescription">Description *</label>
-                        <textarea id="proposalDescription" rows="4" required maxlength="2000"></textarea>
+                        <textarea id="proposalDescription" rows="5" required maxlength="2000"
+                                  placeholder="Provide detailed information about your proposal"></textarea>
+                        <span class="char-count"><span id="charCount">0</span>/2000</span>
                     </div>
                     
-                    <div class="form-group">
-                        <label for="proposalCategory">Category *</label>
-                        <select id="proposalCategory" required>
-                            <option value="">Select category</option>
-                            <option value="governance">Governance</option>
-                            <option value="treasury">Treasury</option>
-                            <option value="technical">Technical</option>
-                            <option value="community">Community</option>
-                        </select>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="proposalCategory">Category *</label>
+                            <select id="proposalCategory" required>
+                                <option value="">Select category</option>
+                                <option value="governance">🏛️ Governance</option>
+                                <option value="treasury">💰 Treasury</option>
+                                <option value="technical">⚙️ Technical</option>
+                                <option value="community">👥 Community</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="proposalDuration">Voting Duration *</label>
+                            <select id="proposalDuration" required>
+                                <option value="3">3 Days</option>
+                                <option value="7" selected>7 Days</option>
+                                <option value="14">14 Days</option>
+                            </select>
+                        </div>
                     </div>
                     
                     <div class="form-actions">
@@ -139,55 +175,108 @@
                 </form>
             </section>
 
+            <!-- Filter Section -->
+            <section class="section-card">
+                <div class="filter-bar">
+                    <div class="filter-group">
+                        <button class="filter-btn active" data-filter="all">All</button>
+                        <button class="filter-btn" data-filter="active">Active</button>
+                        <button class="filter-btn" data-filter="passed">Passed</button>
+                        <button class="filter-btn" data-filter="rejected">Rejected</button>
+                    </div>
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="searchProposals" placeholder="Search proposals...">
+                    </div>
+                </div>
+            </section>
+
             <!-- Proposals List -->
             <section class="section-card">
                 <div class="section-header">
-                    <h2><i class="fas fa-vote-yea"></i> Active Proposals</h2>
+                    <h2><i class="fas fa-vote-yea"></i> Proposals</h2>
+                    <span class="proposal-count" id="proposalCount">8 Active</span>
                 </div>
                 
                 <div id="proposalsList" class="proposals-grid">
-                    <!-- Sample Proposal -->
-                    <div class="proposal-card">
-                        <div class="proposal-header">
-                            <div>
-                                <h3 class="proposal-title">Community Development Fund Q4 2025</h3>
-                                <div class="proposal-meta">
-                                    <span><i class="fas fa-user"></i> Alice.eth</span>
-                                    <span><i class="fas fa-clock"></i> 2 days ago</span>
-                                </div>
-                            </div>
-                            <div class="proposal-status status-active">Active</div>
-                        </div>
-                        
-                        <p class="proposal-description">
-                            Proposal to allocate 50 ETH for community development initiatives including hackathons and grants.
-                        </p>
-                        
-                        <div class="voting-progress">
-                            <div class="progress-bar">
-                                <div class="progress-fill" style="width: 68%;"></div>
-                            </div>
-                            <div class="progress-labels">
-                                <span>For: 164 votes (68%)</span>
-                                <span>Against: 78 votes (32%)</span>
-                            </div>
-                        </div>
-                        
-                        <div class="proposal-actions">
-                            <button class="btn btn-primary btn-vote" data-proposal="1">
-                                <i class="fas fa-vote-yea"></i> Vote
-                            </button>
-                        </div>
-                    </div>
+                    <!-- Proposals will be dynamically loaded here -->
                 </div>
             </section>
         </main>
     </div>
 
+    <!-- Vote Modal -->
+    <div id="voteModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Cast Your Vote</h3>
+                <button class="modal-close" id="closeModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="vote-info">
+                    <h4 id="modalProposalTitle"></h4>
+                    <p id="modalProposalDesc"></p>
+                </div>
+                
+                <div class="vote-options">
+                    <label class="vote-option">
+                        <input type="radio" name="voteDirection" value="for" checked>
+                        <div class="option-card">
+                            <i class="fas fa-thumbs-up"></i>
+                            <span>Vote For</span>
+                        </div>
+                    </label>
+                    <label class="vote-option">
+                        <input type="radio" name="voteDirection" value="against">
+                        <div class="option-card">
+                            <i class="fas fa-thumbs-down"></i>
+                            <span>Vote Against</span>
+                        </div>
+                    </label>
+                </div>
+                
+                <div class="vote-power-selector">
+                    <label for="voteAmount">Number of Votes</label>
+                    <div class="slider-container">
+                        <input type="range" id="voteAmount" min="1" max="10" value="1" step="1">
+                        <div class="slider-values">
+                            <span>1</span>
+                            <span>10</span>
+                        </div>
+                    </div>
+                    <div class="vote-calculation">
+                        <div class="calc-item">
+                            <span>Votes:</span>
+                            <strong id="voteCount">1</strong>
+                        </div>
+                        <div class="calc-item">
+                            <span>Cost:</span>
+                            <strong id="voteCost">1</strong>
+                            <span class="unit">credits</span>
+                        </div>
+                        <div class="calc-item">
+                            <span>Remaining:</span>
+                            <strong id="voteRemaining">99</strong>
+                            <span class="unit">credits</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="confirmVote" class="btn btn-primary">
+                    <i class="fas fa-check"></i>
+                    Confirm Vote
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Loading Overlay -->
     <div id="loadingOverlay" class="loading-overlay" style="display: none;">
         <div class="loading-spinner">
-            <i class="fas fa-spinner fa-spin"></i>
+            <div class="spinner"></div>
             <p id="loadingMessage">Processing...</p>
         </div>
     </div>
