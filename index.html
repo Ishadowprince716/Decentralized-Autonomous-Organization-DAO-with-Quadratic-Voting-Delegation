@@ -1,290 +1,246 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quadratic DAO - Democratic Governance</title>
-    
-    <!-- Stylesheets -->
-    <link rel="stylesheet" href="styles.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <!-- Web3 Library -->
-    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="description" content="Quadratic DAO — democratic governance with quadratic voting. Join, create proposals, and cast votes with a cost = votes² model." />
+  <title>Quadratic DAO — Democratic Governance</title>
+
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="" crossorigin="anonymous" />
+
+  <!-- Ethers (defer) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <!-- App script (defer so DOM is ready) -->
+  <script defer src="app.js"></script>
 </head>
+
 <body>
-    <!-- Navigation -->
-    <nav class="navbar">
-        <div class="nav-container">
-            <div class="nav-logo">
-                <i class="fas fa-vote-yea"></i>
-                <span>Quadratic DAO</span>
-            </div>
-            <div class="nav-actions">
-                <div id="networkStatus" class="network-status">
-                    <div class="network-indicator" id="networkIndicator"></div>
-                    <span id="networkName">Disconnected</span>
-                </div>
-                <button id="connectWallet" class="btn btn-primary">
-                    <i class="fas fa-wallet"></i>
-                    <span>Connect Wallet</span>
-                </button>
-            </div>
+  <!-- Navigation -->
+  <nav class="navbar" role="navigation" aria-label="Main navigation">
+    <div class="nav-container container">
+      <a href="#" class="nav-logo" aria-label="Quadratic DAO home">
+        <i class="fas fa-vote-yea" aria-hidden="true"></i>
+        <span>Quadratic DAO</span>
+      </a>
+
+      <div class="nav-actions">
+        <div id="networkStatus" class="network-status" role="status" aria-live="polite">
+          <div class="network-indicator" id="networkIndicator" aria-hidden="true"></div>
+          <span id="networkName">Disconnected</span>
         </div>
-    </nav>
 
-    <!-- Main Container -->
-    <div class="main-container">
-        <!-- Sidebar -->
-        <aside class="sidebar">
-            <section class="sidebar-section">
-                <h3><i class="fas fa-wallet"></i> Wallet Info</h3>
-                <div id="walletInfo" class="wallet-info">
-                    <div class="wallet-address" id="walletAddress">Not connected</div>
-                    <div class="wallet-balance" id="walletBalance">0 ETH</div>
-                </div>
-            </section>
-
-            <section class="sidebar-section">
-                <h3><i class="fas fa-user-circle"></i> Member Status</h3>
-                <div id="memberInfo" class="member-info">
-                    <p class="status-text">Connect wallet to view status</p>
-                </div>
-            </section>
-
-            <section class="sidebar-section">
-                <h3><i class="fas fa-coins"></i> Voting Power</h3>
-                <div id="votingPowerDisplay" class="voting-power">
-                    <div class="power-display">0</div>
-                    <p class="power-label">Credits Available</p>
-                    <div class="power-info">
-                        <i class="fas fa-info-circle"></i>
-                        <span>Quadratic voting: Cost = votes²</span>
-                    </div>
-                </div>
-            </section>
-
-            <section class="sidebar-section">
-                <h3><i class="fas fa-chart-line"></i> Quick Stats</h3>
-                <div class="quick-stats">
-                    <div class="stat-item">
-                        <span class="stat-label">Members</span>
-                        <span class="stat-value" id="totalMembers">247</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Active Proposals</span>
-                        <span class="stat-value" id="activeProposals">8</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Total Votes</span>
-                        <span class="stat-value" id="totalVotes">1,543</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Treasury</span>
-                        <span class="stat-value" id="treasuryBalance">125 ETH</span>
-                    </div>
-                </div>
-            </section>
-        </aside>
-
-        <!-- Main Content -->
-        <main class="main-content">
-            <!-- Hero Section -->
-            <section class="hero-section">
-                <div class="hero-content">
-                    <h1>Democratic Governance with Quadratic Voting</h1>
-                    <p class="hero-description">
-                        Participate in fair, transparent governance where your voice matters.
-                        Join our DAO and help shape the future through quadratic voting.
-                    </p>
-                    <div class="hero-features">
-                        <div class="feature">
-                            <i class="fas fa-shield-alt"></i>
-                            <span>Secure & Transparent</span>
-                        </div>
-                        <div class="feature">
-                            <i class="fas fa-balance-scale"></i>
-                            <span>Fair Voting</span>
-                        </div>
-                        <div class="feature">
-                            <i class="fas fa-users"></i>
-                            <span>Community Driven</span>
-                        </div>
-                    </div>
-                    <div class="hero-actions">
-                        <button id="joinDAO" class="btn btn-primary" disabled>
-                            <i class="fas fa-users"></i>
-                            <span>Join DAO (0.1 ETH)</span>
-                        </button>
-                        <button id="createProposal" class="btn btn-secondary" disabled>
-                            <i class="fas fa-plus-circle"></i>
-                            <span>Create Proposal</span>
-                        </button>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Proposal Creation Form -->
-            <section id="proposalCreation" class="section-card" style="display: none;">
-                <h2><i class="fas fa-edit"></i> Create New Proposal</h2>
-                <form id="proposalForm" class="proposal-form">
-                    <div class="form-group">
-                        <label for="proposalTitle">Title *</label>
-                        <input type="text" id="proposalTitle" required maxlength="100" 
-                               placeholder="Enter a clear, descriptive title">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="proposalDescription">Description *</label>
-                        <textarea id="proposalDescription" rows="5" required maxlength="2000"
-                                  placeholder="Provide detailed information about your proposal"></textarea>
-                        <span class="char-count"><span id="charCount">0</span>/2000</span>
-                    </div>
-                    
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="proposalCategory">Category *</label>
-                            <select id="proposalCategory" required>
-                                <option value="">Select category</option>
-                                <option value="governance">🏛️ Governance</option>
-                                <option value="treasury">💰 Treasury</option>
-                                <option value="technical">⚙️ Technical</option>
-                                <option value="community">👥 Community</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="proposalDuration">Voting Duration *</label>
-                            <select id="proposalDuration" required>
-                                <option value="3">3 Days</option>
-                                <option value="7" selected>7 Days</option>
-                                <option value="14">14 Days</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div class="form-actions">
-                        <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-paper-plane"></i>
-                            <span>Submit Proposal</span>
-                        </button>
-                        <button type="button" id="cancelProposal" class="btn btn-outline">
-                            Cancel
-                        </button>
-                    </div>
-                </form>
-            </section>
-
-            <!-- Filter Section -->
-            <section class="section-card">
-                <div class="filter-bar">
-                    <div class="filter-group">
-                        <button class="filter-btn active" data-filter="all">All</button>
-                        <button class="filter-btn" data-filter="active">Active</button>
-                        <button class="filter-btn" data-filter="passed">Passed</button>
-                        <button class="filter-btn" data-filter="rejected">Rejected</button>
-                    </div>
-                    <div class="search-box">
-                        <i class="fas fa-search"></i>
-                        <input type="text" id="searchProposals" placeholder="Search proposals...">
-                    </div>
-                </div>
-            </section>
-
-            <!-- Proposals List -->
-            <section class="section-card">
-                <div class="section-header">
-                    <h2><i class="fas fa-vote-yea"></i> Proposals</h2>
-                    <span class="proposal-count" id="proposalCount">8 Active</span>
-                </div>
-                
-                <div id="proposalsList" class="proposals-grid">
-                    <!-- Proposals will be dynamically loaded here -->
-                </div>
-            </section>
-        </main>
+        <button id="connectWallet" class="btn btn-primary" type="button" aria-pressed="false">
+          <i class="fas fa-wallet" aria-hidden="true"></i>
+          <span id="connectLabel">Connect Wallet</span>
+        </button>
+      </div>
     </div>
+  </nav>
 
-    <!-- Vote Modal -->
-    <div id="voteModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Cast Your Vote</h3>
-                <button class="modal-close" id="closeModal">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="modal-body">
-                <div class="vote-info">
-                    <h4 id="modalProposalTitle"></h4>
-                    <p id="modalProposalDesc"></p>
-                </div>
-                
-                <div class="vote-options">
-                    <label class="vote-option">
-                        <input type="radio" name="voteDirection" value="for" checked>
-                        <div class="option-card">
-                            <i class="fas fa-thumbs-up"></i>
-                            <span>Vote For</span>
-                        </div>
-                    </label>
-                    <label class="vote-option">
-                        <input type="radio" name="voteDirection" value="against">
-                        <div class="option-card">
-                            <i class="fas fa-thumbs-down"></i>
-                            <span>Vote Against</span>
-                        </div>
-                    </label>
-                </div>
-                
-                <div class="vote-power-selector">
-                    <label for="voteAmount">Number of Votes</label>
-                    <div class="slider-container">
-                        <input type="range" id="voteAmount" min="1" max="10" value="1" step="1">
-                        <div class="slider-values">
-                            <span>1</span>
-                            <span>10</span>
-                        </div>
-                    </div>
-                    <div class="vote-calculation">
-                        <div class="calc-item">
-                            <span>Votes:</span>
-                            <strong id="voteCount">1</strong>
-                        </div>
-                        <div class="calc-item">
-                            <span>Cost:</span>
-                            <strong id="voteCost">1</strong>
-                            <span class="unit">credits</span>
-                        </div>
-                        <div class="calc-item">
-                            <span>Remaining:</span>
-                            <strong id="voteRemaining">99</strong>
-                            <span class="unit">credits</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button id="confirmVote" class="btn btn-primary">
-                    <i class="fas fa-check"></i>
-                    Confirm Vote
-                </button>
-            </div>
+  <!-- Main Container -->
+  <div class="main-container container">
+    <!-- Sidebar -->
+    <aside class="sidebar" aria-labelledby="sidebarTitle">
+      <section class="sidebar-section" id="walletSection">
+        <h3 id="sidebarTitle"><i class="fas fa-wallet" aria-hidden="true"></i> Wallet Info</h3>
+        <div id="walletInfo" class="wallet-info card" aria-live="polite">
+          <div class="wallet-address" id="walletAddress">Not connected</div>
+          <div class="wallet-balance" id="walletBalance">0 ETH</div>
         </div>
-    </div>
+      </section>
 
-    <!-- Loading Overlay -->
-    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
-        <div class="loading-spinner">
-            <div class="spinner"></div>
-            <p id="loadingMessage">Processing...</p>
+      <section class="sidebar-section">
+        <h3><i class="fas fa-user-circle" aria-hidden="true"></i> Member Status</h3>
+        <div id="memberInfo" class="member-info card">
+          <p class="status-text" id="memberStatus">Connect wallet to view status</p>
         </div>
+      </section>
+
+      <section class="sidebar-section">
+        <h3><i class="fas fa-coins" aria-hidden="true"></i> Voting Power</h3>
+        <div id="votingPowerDisplay" class="voting-power">
+          <div class="power-display" id="powerDisplay">0</div>
+          <p class="power-label">Credits Available</p>
+          <div class="power-info" aria-hidden="true">
+            <i class="fas fa-info-circle"></i>
+            <span>Quadratic voting: Cost = votes²</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="sidebar-section">
+        <h3><i class="fas fa-chart-line" aria-hidden="true"></i> Quick Stats</h3>
+        <div class="quick-stats card" aria-hidden="true">
+          <div class="stat-item"><span class="stat-label">Members</span><span class="stat-value" id="totalMembers">247</span></div>
+          <div class="stat-item"><span class="stat-label">Active Proposals</span><span class="stat-value" id="activeProposals">8</span></div>
+          <div class="stat-item"><span class="stat-label">Total Votes</span><span class="stat-value" id="totalVotes">1,543</span></div>
+          <div class="stat-item"><span class="stat-label">Treasury</span><span class="stat-value" id="treasuryBalance">125 ETH</span></div>
+        </div>
+      </section>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content" id="main" role="main">
+      <!-- Hero Section -->
+      <section class="hero-section" aria-labelledby="heroHeading">
+        <div class="hero-content">
+          <h1 id="heroHeading">Democratic Governance with Quadratic Voting</h1>
+          <p class="hero-description">Participate in fair, transparent governance where your voice matters. Join our DAO and help shape the future through quadratic voting.</p>
+
+          <div class="hero-features" role="list" aria-hidden="true">
+            <div class="feature" role="listitem"><i class="fas fa-shield-alt" aria-hidden="true"></i> <span>Secure &amp; Transparent</span></div>
+            <div class="feature" role="listitem"><i class="fas fa-balance-scale" aria-hidden="true"></i> <span>Fair Voting</span></div>
+            <div class="feature" role="listitem"><i class="fas fa-users" aria-hidden="true"></i> <span>Community Driven</span></div>
+          </div>
+
+          <div class="hero-actions">
+            <button id="joinDAO" class="btn btn-primary btn-pill" type="button" disabled>
+              <i class="fas fa-users" aria-hidden="true"></i><span>Join DAO (0.1 ETH)</span>
+            </button>
+
+            <button id="createProposal" class="btn btn-secondary" type="button" disabled aria-controls="proposalCreation" aria-expanded="false">
+              <i class="fas fa-plus-circle" aria-hidden="true"></i><span>Create Proposal</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Proposal Creation Form (hidden by default) -->
+      <section id="proposalCreation" class="section-card" style="display:none;" aria-hidden="true">
+        <h2><i class="fas fa-edit" aria-hidden="true"></i> Create New Proposal</h2>
+
+        <form id="proposalForm" class="proposal-form" novalidate>
+          <div class="form-group">
+            <label for="proposalTitle">Title *</label>
+            <input id="proposalTitle" name="title" type="text" required maxlength="100" placeholder="Enter a clear, descriptive title" />
+          </div>
+
+          <div class="form-group">
+            <label for="proposalDescription">Description *</label>
+            <textarea id="proposalDescription" name="description" rows="5" required maxlength="2000" placeholder="Provide detailed information about your proposal"></textarea>
+            <div class="char-count" aria-live="polite"><span id="charCount">0</span>/2000</div>
+          </div>
+
+          <div class="form-row" style="display:flex;gap:1rem;flex-wrap:wrap;">
+            <div class="form-group" style="flex:1 1 200px;">
+              <label for="proposalCategory">Category *</label>
+              <select id="proposalCategory" name="category" required>
+                <option value="">Select category</option>
+                <option value="governance">Governance</option>
+                <option value="treasury">Treasury</option>
+                <option value="technical">Technical</option>
+                <option value="community">Community</option>
+              </select>
+            </div>
+
+            <div class="form-group" style="width:180px;">
+              <label for="proposalDuration">Voting Duration *</label>
+              <select id="proposalDuration" name="duration" required>
+                <option value="3">3 Days</option>
+                <option value="7" selected>7 Days</option>
+                <option value="14">14 Days</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary"><i class="fas fa-paper-plane" aria-hidden="true"></i> Submit Proposal</button>
+            <button type="button" id="cancelProposal" class="btn btn-outline">Cancel</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Filter Section -->
+      <section class="section-card" aria-hidden="false">
+        <div class="filter-bar" style="display:flex;justify-content:space-between;gap:1rem;align-items:center;flex-wrap:wrap;">
+          <div class="filter-group" role="tablist" aria-label="Proposal filters">
+            <button class="filter-btn active" data-filter="all" role="tab" aria-selected="true">All</button>
+            <button class="filter-btn" data-filter="active" role="tab" aria-selected="false">Active</button>
+            <button class="filter-btn" data-filter="passed" role="tab" aria-selected="false">Passed</button>
+            <button class="filter-btn" data-filter="rejected" role="tab" aria-selected="false">Rejected</button>
+          </div>
+
+          <div class="search-box" role="search">
+            <i class="fas fa-search" aria-hidden="true"></i>
+            <label for="searchProposals" class="visually-hidden">Search proposals</label>
+            <input id="searchProposals" type="search" placeholder="Search proposals..." />
+          </div>
+        </div>
+      </section>
+
+      <!-- Proposals List -->
+      <section class="section-card" aria-labelledby="proposalsHeading">
+        <div class="section-header">
+          <h2 id="proposalsHeading"><i class="fas fa-vote-yea" aria-hidden="true"></i> Proposals</h2>
+          <span class="proposal-count" id="proposalCount">8 Active</span>
+        </div>
+
+        <div id="proposalsList" class="proposals-grid" aria-live="polite">
+          <!-- JS will add proposal cards here -->
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Vote Modal -->
+  <div id="voteModal" class="modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="voteModalTitle" style="display:none;">
+    <div class="modal-content" role="document">
+      <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;">
+        <h3 id="voteModalTitle">Cast Your Vote</h3>
+        <button class="modal-close btn btn-outline" id="closeModal" aria-label="Close vote dialog">
+          <i class="fas fa-times" aria-hidden="true"></i>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <div class="vote-info">
+          <h4 id="modalProposalTitle">—</h4>
+          <p id="modalProposalDesc" class="proposal-desc">—</p>
+        </div>
+
+        <fieldset class="vote-options" style="border:none;padding:0;margin:1rem 0;">
+          <legend class="visually-hidden">Vote direction</legend>
+
+          <label class="vote-option" style="display:inline-block;margin-right:0.5rem;">
+            <input type="radio" name="voteDirection" value="for" checked />
+            <div class="option-card"><i class="fas fa-thumbs-up" aria-hidden="true"></i> Vote For</div>
+          </label>
+
+          <label class="vote-option" style="display:inline-block;">
+            <input type="radio" name="voteDirection" value="against" />
+            <div class="option-card"><i class="fas fa-thumbs-down" aria-hidden="true"></i> Vote Against</div>
+          </label>
+        </fieldset>
+
+        <div class="vote-power-selector">
+          <label for="voteAmount">Number of Votes</label>
+          <div class="slider-container">
+            <input type="range" id="voteAmount" min="1" max="10" value="1" step="1" />
+            <div class="slider-values" aria-hidden="true"><span>1</span><span>10</span></div>
+          </div>
+
+          <div class="vote-calculation" aria-live="polite">
+            <div class="calc-item"><span>Votes:</span> <strong id="voteCount">1</strong></div>
+            <div class="calc-item"><span>Cost:</span> <strong id="voteCost">1</strong> <span class="unit">credits</span></div>
+            <div class="calc-item"><span>Remaining:</span> <strong id="voteRemaining">0</strong> <span class="unit">credits</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:1rem;">
+        <button id="confirmVote" class="btn btn-primary" type="button"> <i class="fas fa-check" aria-hidden="true"></i> Confirm Vote</button>
+      </div>
     </div>
+  </div>
 
-    <!-- Toast Container -->
-    <div id="toastContainer" class="toast-container"></div>
+  <!-- Loading Overlay -->
+  <div id="loadingOverlay" class="loading-overlay" style="display:none;" aria-hidden="true">
+    <div class="loading-spinner" role="status" aria-live="polite"><div class="spinner" aria-hidden="true"></div><p id="loadingMessage">Processing...</p></div>
+  </div>
 
-    <!-- Main Script -->
-    <script src="app.js"></script>
+  <!-- Toast Container -->
+  <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 </body>
 </html>
