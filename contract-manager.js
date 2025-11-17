@@ -4,12 +4,8 @@ import { ethers } from 'ethers';
 
 /**
  * Enhanced ContractManager
- * - Improved error handling and message normalization
- * - Safer BigNumber usage
- * - Optional parallel batch voting with concurrency control
- * - Implemented getDelegates via event log scan (configurable startBlock)
- * - Better cache controls and TTL defaults
- * - Defensive checks for missing contract helper methods
+ * See user-provided version for behavior - this adds defensive checks,
+ * better BigNumber handling and small API improvements.
  */
 export class ContractManager extends EventTarget {
     constructor(web3Manager, opts = {}) {
@@ -46,10 +42,10 @@ export class ContractManager extends EventTarget {
         };
 
         // Optional start block for event scanning (used by getDelegates)
-        this.startBlock = opts.startBlock || 0;
+        this.startBlock = typeof opts.startBlock === 'number' ? opts.startBlock : 0;
 
         // Concurrency limit for parallel batch ops (default sequential)
-        this.batchConcurrency = opts.batchConcurrency || 1;
+        this.batchConcurrency = Math.max(1, Math.floor(opts.batchConcurrency || 1));
     }
 
     // ----- Initialization -----
@@ -61,15 +57,11 @@ export class ContractManager extends EventTarget {
                 if (!this.web3Manager?.isConnected) {
                     throw new Error('Web3 not connected');
                 }
-
-                this.contract = new ethers.Contract(
-                    CONTRACT_CONFIG.address,
-                    CONTRACT_CONFIG.abi,
-                    this.web3Manager.signer || this.web3Manager.provider
-                );
+                const providerOrSigner = this.web3Manager.signer || this.web3Manager.provider;
+                this.contract = new ethers.Contract(CONTRACT_CONFIG.address, CONTRACT_CONFIG.abi, providerOrSigner);
 
                 // Verify contract is deployed
-                const code = await this.web3Manager.provider.getCode(CONTRACT_CONFIG.address);
+                const code = await (this.web3Manager.provider?.getCode?.(CONTRACT_CONFIG.address));
                 if (!code || code === '0x') {
                     throw new Error('Contract not deployed at specified address');
                 }
@@ -103,31 +95,33 @@ export class ContractManager extends EventTarget {
             // remove previous listeners first
             try { this.contract.removeAllListeners(); } catch (e) { /* ignore */ }
 
-            if (this.contract.interface.events.MemberJoined) {
+            const ifaceEvents = this.contract.interface?.events || {};
+
+            if (ifaceEvents.MemberJoined) {
                 this.contract.on('MemberJoined', (member, contribution, event) => {
                     this.handleMemberJoined(member, contribution, event);
                 });
             }
 
-            if (this.contract.interface.events.ProposalCreated) {
+            if (ifaceEvents.ProposalCreated) {
                 this.contract.on('ProposalCreated', (proposalId, proposer, title, event) => {
                     this.handleProposalCreated(proposalId, proposer, title, event);
                 });
             }
 
-            if (this.contract.interface.events.VoteCast) {
+            if (ifaceEvents.VoteCast) {
                 this.contract.on('VoteCast', (proposalId, voter, support, votes, event) => {
                     this.handleVoteCast(proposalId, voter, support, votes, event);
                 });
             }
 
-            if (this.contract.interface.events.DelegateChanged) {
+            if (ifaceEvents.DelegateChanged) {
                 this.contract.on('DelegateChanged', (delegator, fromDelegate, toDelegate, event) => {
                     this.handleDelegateChanged(delegator, fromDelegate, toDelegate, event);
                 });
             }
         } catch (error) {
-            console.warn('Failed to setup event listeners:', error.message || error);
+            console.warn('Failed to setup event listeners:', error?.message || error);
         }
     }
 
@@ -137,7 +131,7 @@ export class ContractManager extends EventTarget {
         this.invalidateCache('analytics');
 
         this.dispatchEvent(new CustomEvent('member:joined:confirmed', {
-            detail: { member, contribution, blockNumber: event?.blockNumber }
+            detail: { member, contribution: contribution?.toString?.(), blockNumber: event?.blockNumber }
         }));
     }
 
@@ -181,17 +175,33 @@ export class ContractManager extends EventTarget {
 
             const balance = await this.web3Manager.getBalance();
             const value = ethers.utils.parseEther(membershipFee.toString());
-            if (balance.lt(value)) throw new Error('Insufficient balance');
+            if (!balance || balance.lt(value)) throw new Error('Insufficient balance');
 
             const gasEstimate = await this.estimateGas('joinDAO', [], value);
             const gasLimit = options.gasLimit || gasEstimate.mul(120).div(100);
+
+            if (!this.contract.joinDAO) throw new Error('Contract method joinDAO not available');
 
             const tx = await this.contract.joinDAO({ value, gasLimit });
 
             this.metrics.transactionCount++;
 
-            const receipt = await this.web3Manager.waitForTransaction(tx.hash, options.confirmations);
+            if (typeof this.web3Manager.waitForTransaction !== 'function') {
+                // fallback: wait for tx.wait if signer returned transaction response
+                const receipt = await tx.wait(options.confirmations || 1);
+                this.updateGasMetrics(receipt.gasUsed);
+                this.dispatchEvent(new CustomEvent('member:joined', {
+                    detail: {
+                        address: this.web3Manager.userAddress,
+                        contribution: membershipFee,
+                        txHash: tx.hash,
+                        gasUsed: receipt.gasUsed.toString()
+                    }
+                }));
+                return { success: true, txHash: tx.hash, receipt, gasUsed: receipt.gasUsed.toString() };
+            }
 
+            const receipt = await this.web3Manager.waitForTransaction(tx.hash, options.confirmations);
             this.updateGasMetrics(receipt.gasUsed);
 
             this.dispatchEvent(new CustomEvent('member:joined', {
@@ -226,6 +236,8 @@ export class ContractManager extends EventTarget {
 
             const gasEstimate = await this.estimateGas('createProposal', [validation.sanitized.title, fullDescription]);
             const gasLimit = options.gasLimit || gasEstimate.mul(120).div(100);
+
+            if (!this.contract.createProposal) throw new Error('Contract method createProposal not available');
 
             const tx = await this.contract.createProposal(validation.sanitized.title, fullDescription, { gasLimit });
 
@@ -281,10 +293,13 @@ export class ContractManager extends EventTarget {
                 await this.setDelegate(options.delegateAddress);
             }
 
-            const gasEstimate = await this.estimateGas('castQuadraticVote', [proposalId, credits, support]);
+            const methodName = this.contract.castQuadraticVote ? 'castQuadraticVote' : 'castVote';
+            const gasEstimate = await this.estimateGas(methodName, [proposalId, credits, support]);
             const gasLimit = options.gasLimit || gasEstimate.mul(120).div(100);
 
-            const tx = await this.contract.castQuadraticVote(proposalId, credits, support, { gasLimit });
+            if (typeof this.contract[methodName] !== 'function') throw new Error(`${methodName} not available on contract`);
+
+            const tx = await this.contract[methodName](proposalId, credits, support, { gasLimit });
 
             this.metrics.transactionCount++;
 
@@ -292,7 +307,7 @@ export class ContractManager extends EventTarget {
 
             this.updateGasMetrics(receipt.gasUsed);
 
-            const votingPower = QUADRATIC_VOTING.calculatePower(credits);
+            const votingPower = QUADRATIC_VOTING?.calculatePower ? QUADRATIC_VOTING.calculatePower(credits) : credits;
 
             this.dispatchEvent(new CustomEvent('vote:cast', {
                 detail: { proposalId, credits, support, votingPower, voter: this.web3Manager.userAddress, txHash: tx.hash, gasUsed: receipt.gasUsed.toString() }
@@ -315,8 +330,8 @@ export class ContractManager extends EventTarget {
             const errors = [];
 
             if (opts.parallel && this.batchConcurrency > 1) {
-                // naive concurrency control using simple batch slicing
-                const concurrency = Math.max(1, Math.floor(this.batchConcurrency));
+                // concurrency control using simple slicing approach
+                const concurrency = this.batchConcurrency;
                 const chunks = [];
                 for (let i = 0; i < votes.length; i += concurrency) {
                     chunks.push(votes.slice(i, i + concurrency));
@@ -366,6 +381,8 @@ export class ContractManager extends EventTarget {
             const gasEstimate = await this.estimateGas('delegate', [address]);
             const gasLimit = options.gasLimit || gasEstimate.mul(120).div(100);
 
+            if (typeof this.contract.delegate !== 'function') throw new Error('delegate not available on contract');
+
             const tx = await this.contract.delegate(address, { gasLimit });
 
             this.metrics.transactionCount++;
@@ -399,12 +416,16 @@ export class ContractManager extends EventTarget {
             if (proposal.endTime > now) throw new Error('Voting period still active');
 
             // ensure forVotes > againstVotes using BigNumber safe compare
-            if (!proposal.forVotes || !proposal.againstVotes || ethers.BigNumber.from(proposal.forVotes).lte(ethers.BigNumber.from(proposal.againstVotes))) {
+            const forVotesBN = ethers.BigNumber.from(proposal.forVotes || 0);
+            const againstVotesBN = ethers.BigNumber.from(proposal.againstVotes || 0);
+            if (forVotesBN.lte(againstVotesBN)) {
                 throw new Error('Proposal did not pass');
             }
 
             const gasEstimate = await this.estimateGas('executeProposal', [proposalId]);
             const gasLimit = options.gasLimit || gasEstimate.mul(120).div(100);
+
+            if (typeof this.contract.executeProposal !== 'function') throw new Error('executeProposal not available on contract');
 
             const tx = await this.contract.executeProposal(proposalId, { gasLimit });
 
@@ -441,12 +462,14 @@ export class ContractManager extends EventTarget {
 
             this.metrics.cacheMisses++;
 
+            if (!this.contract?.members) throw new Error('Contract does not expose members mapping');
+
             const memberData = await this.contract.members(address);
 
             const memberInfo = {
                 isMember: Boolean(memberData.isMember),
-                contribution: memberData.contribution || ethers.BigNumber.from(0),
-                votingPower: memberData.votingPower || ethers.BigNumber.from(0),
+                contribution: memberData.contribution ? ethers.BigNumber.from(memberData.contribution) : ethers.BigNumber.from(0),
+                votingPower: memberData.votingPower ? ethers.BigNumber.from(memberData.votingPower) : ethers.BigNumber.from(0),
                 delegatedTo: memberData.delegatedTo || ethers.constants.AddressZero,
                 address,
                 joinedAt: memberData.joinedAt || null,
@@ -482,21 +505,28 @@ export class ContractManager extends EventTarget {
 
             this.metrics.cacheMisses++;
 
+            if (!this.contract?.proposals) throw new Error('Contract does not expose proposals mapping');
+
             const proposalData = await this.contract.proposals(proposalId);
 
+            // Normalize numeric / BN fields
+            const forVotesBN = proposalData.forVotes ? ethers.BigNumber.from(proposalData.forVotes) : ethers.BigNumber.from(0);
+            const againstVotesBN = proposalData.againstVotes ? ethers.BigNumber.from(proposalData.againstVotes) : ethers.BigNumber.from(0);
+            const endTimeNum = Number(proposalData.endTime || 0);
+
             const proposal = {
-                id: proposalId,
+                id: Number(proposalId),
                 title: proposalData.title || '',
                 description: proposalData.description || '',
-                proposer: proposalData.proposer,
-                forVotes: proposalData.forVotes || ethers.BigNumber.from(0),
-                againstVotes: proposalData.againstVotes || ethers.BigNumber.from(0),
+                proposer: proposalData.proposer || null,
+                forVotes: forVotesBN,
+                againstVotes: againstVotesBN,
                 executed: Boolean(proposalData.executed),
-                endTime: Number(proposalData.endTime || 0),
+                endTime: endTimeNum,
                 createdAt: proposalData.createdAt || null,
-                status: this.getProposalStatus(proposalData),
-                participation: await this.calculateParticipation(proposalData),
-                winningChoice: (proposalData.forVotes && proposalData.againstVotes && ethers.BigNumber.from(proposalData.forVotes).gt(ethers.BigNumber.from(proposalData.againstVotes))) ? 'for' : 'against'
+                status: this.getProposalStatus(proposalData, { endTime: endTimeNum, executed: Boolean(proposalData.executed) }),
+                participation: await this.calculateParticipation({ forVotes: forVotesBN, againstVotes: againstVotesBN, endTime: endTimeNum, ...proposalData }),
+                winningChoice: forVotesBN.gt(againstVotesBN) ? 'for' : 'against'
             };
 
             // active proposals cached shorter
@@ -525,6 +555,8 @@ export class ContractManager extends EventTarget {
             }
 
             this.metrics.cacheMisses++;
+
+            if (!this.contract?.proposalCount) throw new Error('Contract does not expose proposalCount');
 
             const proposalCountBN = await this.contract.proposalCount();
             const total = Number(proposalCountBN.toString());
@@ -589,9 +621,9 @@ export class ContractManager extends EventTarget {
             this.metrics.cacheMisses++;
 
             const [memberCountBN, proposalCountBN, treasuryBalance] = await Promise.all([
-                this.contract.memberCount(),
-                this.contract.proposalCount(),
-                this.web3Manager.provider.getBalance(CONTRACT_CONFIG.address)
+                typeof this.contract.memberCount === 'function' ? this.contract.memberCount() : ethers.BigNumber.from(0),
+                typeof this.contract.proposalCount === 'function' ? this.contract.proposalCount() : ethers.BigNumber.from(0),
+                this.web3Manager.provider?.getBalance ? this.web3Manager.provider.getBalance(CONTRACT_CONFIG.address) : ethers.BigNumber.from(0)
             ]);
 
             const allProposals = await this.getProposals({ limit: 1000, useCache: false });
@@ -601,7 +633,11 @@ export class ContractManager extends EventTarget {
             const executedProposals = proposals.filter(p => p.status === 'executed').length;
             const pendingProposals = proposals.filter(p => p.status === 'pending').length;
 
-            const totalVotes = proposals.reduce((sum, p) => sum + Number((p.forVotes || 0).toString?.() || 0) + Number((p.againstVotes || 0).toString?.() || 0), 0);
+            const totalVotes = proposals.reduce((sum, p) => {
+                const f = p.forVotes ? Number((p.forVotes || 0).toString?.() || p.forVotes) : 0;
+                const a = p.againstVotes ? Number((p.againstVotes || 0).toString?.() || p.againstVotes) : 0;
+                return sum + f + a;
+            }, 0);
 
             const avgParticipation = proposals.length > 0 ? proposals.reduce((sum, p) => sum + (Number(p.participation) || 0), 0) / proposals.length : 0;
 
@@ -613,7 +649,7 @@ export class ContractManager extends EventTarget {
                 pendingProposals,
                 totalVotes,
                 averageParticipation: avgParticipation.toFixed(2),
-                treasuryBalance: ethers.utils.formatEther(treasuryBalance),
+                treasuryBalance: ethers.utils.formatEther(treasuryBalance || ethers.BigNumber.from(0)),
                 proposals: proposals.slice(0, 10),
                 performanceMetrics: { ...this.metrics }
             };
@@ -660,29 +696,47 @@ export class ContractManager extends EventTarget {
 
             // If contract exposes a helper, prefer it
             if (typeof this.contract.getDelegators === 'function') {
-                return await this.contract.getDelegators(address);
+                try {
+                    return await this.contract.getDelegators(address);
+                } catch (e) {
+                    console.warn('contract.getDelegators failed, falling back to log scan:', e?.message || e);
+                }
             }
 
             const provider = this.web3Manager.provider;
+            if (!provider || typeof provider.getBlockNumber !== 'function' || typeof provider.getLogs !== 'function') return [];
+
             const latest = await provider.getBlockNumber();
 
-            const filter = this.contract.filters?.DelegateChanged?.(null, null, null) || null;
-            if (!filter) return [];
+            // Build filter via contract.filters if possible
+            const filter = (this.contract.filters && typeof this.contract.filters.DelegateChanged === 'function') ?
+                this.contract.filters.DelegateChanged(null, null, null) :
+                null;
 
-            // Restrict to logs from startBlock (configurable)
-            filter.fromBlock = this.startBlock;
-            filter.toBlock = latest;
+            // If no filter helper, construct topic-based filter
+            let logs;
+            if (filter) {
+                // create a copy and set block range
+                const logFilter = { ...filter, fromBlock: this.startBlock, toBlock: latest };
+                logs = await provider.getLogs(logFilter);
+            } else {
+                // fallback: attempt to build topics using the interface
+                const topic = this.contract.interface.getEventTopic('DelegateChanged');
+                if (!topic) return [];
+                const logFilter = { address: CONTRACT_CONFIG.address, topics: [topic], fromBlock: this.startBlock, toBlock: latest };
+                logs = await provider.getLogs(logFilter);
+            }
 
-            const logs = await provider.getLogs(filter);
             const iface = this.contract.interface;
-
             const delegates = new Set();
 
             for (const log of logs) {
                 try {
                     const parsed = iface.parseLog(log);
                     if (parsed?.name === 'DelegateChanged') {
-                        const [delegator, , toDelegate] = parsed.args;
+                        // parsed.args may contain [delegator, fromDelegate, toDelegate]
+                        const delegator = parsed.args?.[0];
+                        const toDelegate = parsed.args?.[2];
                         if (toDelegate && toDelegate.toLowerCase() === address.toLowerCase()) {
                             delegates.add(delegator);
                         }
@@ -733,15 +787,20 @@ export class ContractManager extends EventTarget {
             throw new Error(`No gas estimator for method ${method}`);
         } catch (error) {
             console.error(`Failed to estimate gas for ${method}:`, error?.message || error);
-            // Return default gas limit as fallback
-            return ethers.BigNumber.from(GAS_LIMITS[method?.toUpperCase()] || 300000);
+            // Return default gas limit as fallback (ensure BigNumber)
+            const fallback = GAS_LIMITS[method?.toUpperCase()] || 300000;
+            return ethers.BigNumber.from(fallback);
         }
     }
 
     extractProposalIdFromReceipt(receipt) {
         try {
             const evt = receipt.events?.find(e => e.event === 'ProposalCreated');
-            return evt?.args?.proposalId?.toNumber?.() || (evt?.args?.proposalId ? Number(evt.args.proposalId.toString()) : null);
+            const id = evt?.args?.proposalId;
+            if (id == null) return null;
+            // convert to number if possible
+            if (typeof id.toNumber === 'function') return id.toNumber();
+            return Number(id.toString?.() || id);
         } catch (error) {
             console.error('Failed to extract proposal ID:', error?.message || error);
             return null;
@@ -780,11 +839,22 @@ export class ContractManager extends EventTarget {
         }
     }
 
-    getProposalStatus(proposal) {
-        const now = Math.floor(Date.now() / 1000);
-        if (proposal.executed) return 'executed';
-        if (proposal.endTime > now) return 'active';
-        return 'pending';
+    /**
+     * getProposalStatus supports either:
+     *  - a normalized proposal object with fields `executed` and `endTime`
+     *  - a raw contract struct (will check properties)
+     */
+    getProposalStatus(proposalLike) {
+        try {
+            const executed = Boolean(proposalLike.executed || (proposalLike.executed === 1));
+            const endTime = Number(proposalLike.endTime || 0);
+            const now = Math.floor(Date.now() / 1000);
+            if (executed) return 'executed';
+            if (endTime > now) return 'active';
+            return 'pending';
+        } catch (e) {
+            return 'unknown';
+        }
     }
 
     getTimeRemaining(proposal) {
@@ -821,7 +891,7 @@ export class ContractManager extends EventTarget {
 
     setCache(key, value, ttl = this.CACHE_TTL) { this.cache.set(key, value); this.cacheExpiry.set(key, Date.now() + ttl); }
     getFromCache(key) { if (!this.cache.has(key)) return null; const expiry = this.cacheExpiry.get(key); if (Date.now() > expiry) { this.cache.delete(key); this.cacheExpiry.delete(key); return null; } return this.cache.get(key); }
-    invalidateCache(pattern, id = null) { if (id !== null) { const key = `${pattern}:${id}`; this.cache.delete(key); this.cacheExpiry.delete(key); } else { for (const key of this.cache.keys()) if (key.startsWith(pattern)) { this.cache.delete(key); this.cacheExpiry.delete(key); } } }
+    invalidateCache(pattern, id = null) { if (id !== null) { const key = `${pattern}:${id}`; this.cache.delete(key); this.cacheExpiry.delete(key); } else { for (const key of Array.from(this.cache.keys())) if (key.startsWith(pattern)) { this.cache.delete(key); this.cacheExpiry.delete(key); } } }
     clearCache() { this.cache.clear(); this.cacheExpiry.clear(); }
 
     updateGasMetrics(gasUsed) {
@@ -837,21 +907,22 @@ export class ContractManager extends EventTarget {
 
     handleContractError(error, method) {
         console.error(`Contract error in ${method}:`, error);
-        const msg = (error?.message || String(error)).toLowerCase();
+        const rawMsg = (error?.message || String(error)).toLowerCase();
         let errorCode = ERROR_CODES.CONTRACT_ERROR;
         let message = error?.message || String(error);
         let details = null;
 
-        if (msg.includes('insufficient funds')) { errorCode = ERROR_CODES.INSUFFICIENT_FUNDS; message = 'Insufficient funds for this transaction'; }
-        else if (msg.includes('user rejected') || msg.includes('user denied')) { errorCode = ERROR_CODES.USER_REJECTED; message = 'Transaction rejected by user'; }
-        else if (msg.includes('already member')) { errorCode = ERROR_CODES.ALREADY_MEMBER; message = 'Already a DAO member'; }
-        else if (msg.includes('not member')) { errorCode = ERROR_CODES.NOT_MEMBER; message = 'Must be a DAO member'; }
-        else if (msg.includes('gas required exceeds')) { errorCode = ERROR_CODES.GAS_LIMIT_EXCEEDED; message = 'Transaction requires too much gas'; }
-        else if (msg.includes('nonce too low')) { errorCode = ERROR_CODES.NONCE_ERROR; message = 'Transaction nonce error. Please try again'; }
-        else if (msg.includes('replacement fee too low') || msg.includes('replacement transaction underpriced')) { errorCode = ERROR_CODES.REPLACEMENT_UNDERPRICED; message = 'Replacement transaction underpriced'; }
-        else if (msg.includes('network')) { errorCode = ERROR_CODES.NETWORK_ERROR; message = 'Network error. Please check your connection'; }
+        if (rawMsg.includes('insufficient funds')) { errorCode = ERROR_CODES.INSUFFICIENT_FUNDS; message = 'Insufficient funds for this transaction'; }
+        else if (rawMsg.includes('user rejected') || rawMsg.includes('user denied')) { errorCode = ERROR_CODES.USER_REJECTED; message = 'Transaction rejected by user'; }
+        else if (rawMsg.includes('already member')) { errorCode = ERROR_CODES.ALREADY_MEMBER; message = 'Already a DAO member'; }
+        else if (rawMsg.includes('not member')) { errorCode = ERROR_CODES.NOT_MEMBER; message = 'Must be a DAO member'; }
+        else if (rawMsg.includes('gas required exceeds')) { errorCode = ERROR_CODES.GAS_LIMIT_EXCEEDED; message = 'Transaction requires too much gas'; }
+        else if (rawMsg.includes('nonce too low')) { errorCode = ERROR_CODES.NONCE_ERROR; message = 'Transaction nonce error. Please try again'; }
+        else if (rawMsg.includes('replacement fee too low') || rawMsg.includes('replacement transaction underpriced')) { errorCode = ERROR_CODES.REPLACEMENT_UNDERPRICED; message = 'Replacement transaction underpriced'; }
+        else if (rawMsg.includes('network')) { errorCode = ERROR_CODES.NETWORK_ERROR; message = 'Network error. Please check your connection'; }
         else if (error?.code === 'UNPREDICTABLE_GAS_LIMIT') { errorCode = ERROR_CODES.EXECUTION_REVERTED; message = 'Transaction would fail. Please check parameters'; details = error.error?.message || null; }
 
+        // Expose a normalized event for callers
         this.dispatchEvent(new CustomEvent('contract:error', { detail: { error, errorCode, message, method, details } }));
 
         return { success: false, error: message, errorCode, details, method };
@@ -866,16 +937,46 @@ export class ContractManager extends EventTarget {
     getContractABI() { return CONTRACT_CONFIG.abi; }
     isReady() { return this.isInitialized && this.web3Manager?.isConnected; }
 
-    async exportData() { try { const analytics = await this.getAnalytics(false); const userAddress = this.web3Manager.userAddress; const memberInfo = await this.getMemberInfo(userAddress, false); return { timestamp: Date.now(), userAddress, memberInfo, analytics, metrics: this.getMetrics(), version: '1.1' }; } catch (error) { console.error('Failed to export data:', error?.message || error); throw error; } }
+    async exportData() {
+        try {
+            const analytics = await this.getAnalytics(false);
+            const userAddress = this.web3Manager.userAddress;
+            const memberInfo = await this.getMemberInfo(userAddress, false);
+            return { timestamp: Date.now(), userAddress, memberInfo, analytics, metrics: this.getMetrics(), version: '1.1' };
+        } catch (error) {
+            console.error('Failed to export data:', error?.message || error);
+            throw error;
+        }
+    }
 
-    async healthCheck() { const health = { isInitialized: this.isInitialized, isConnected: this.web3Manager?.isConnected, contractAddress: CONTRACT_CONFIG.address, cacheSize: this.cache.size, timestamp: Date.now() };
+    async healthCheck() {
+        const health = { isInitialized: this.isInitialized, isConnected: this.web3Manager?.isConnected, contractAddress: CONTRACT_CONFIG.address, cacheSize: this.cache.size, timestamp: Date.now() };
         if (this.isInitialized) {
-            try { const memberCount = await this.contract.memberCount(); health.contractAccessible = true; health.memberCount = Number(memberCount.toString()); } catch (error) { health.contractAccessible = false; health.error = error?.message || error; }
+            try {
+                if (typeof this.contract.memberCount === 'function') {
+                    const memberCount = await this.contract.memberCount();
+                    health.contractAccessible = true;
+                    health.memberCount = Number(memberCount.toString());
+                } else {
+                    health.contractAccessible = true;
+                }
+            } catch (error) {
+                health.contractAccessible = false;
+                health.error = error?.message || error;
+            }
         }
         return health;
     }
 
-    cleanup() { this.unsubscribeFromAllEvents(); this.contract = null; this.isInitialized = false; this.rateLimits.clear(); this.clearCache(); this.txQueue = []; this.isProcessingQueue = false; }
+    cleanup() {
+        this.unsubscribeFromAllEvents();
+        this.contract = null;
+        this.isInitialized = false;
+        this.rateLimits.clear();
+        this.clearCache();
+        this.txQueue = [];
+        this.isProcessingQueue = false;
+    }
 }
 
 export default ContractManager;
