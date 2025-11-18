@@ -1,525 +1,135 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
-
-import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
-
-/**
- * @title EnhancedDAO
- * @notice Advanced DAO with quadratic voting, reputation, delegation, and timelocked execution
- */
-contract EnhancedDAO is AccessControl, ReentrancyGuard, Pausable {
-    using SafeERC20 for IERC20;
-
-    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
-    bytes32 public constant PROPOSER_ROLE = keccak256("PROPOSER_ROLE");
-
-    // Reputation system
-    struct Reputation {
-        uint256 score;
-        uint256 lastUpdate;
-        uint256 participationCount;
-        uint256 proposalsCreated;
-        uint256 successfulVotes;
-    }
-
-    // Proposal and related enums/structs
-    enum ProposalState {
-        Pending,
-        Active,
-        Canceled,
-        Defeated,
-        Succeeded,
-        Queued,
-        Expired,
-        Executed
-    }
-
-    enum ProposalType {
-        Standard,
-        Constitutional,
-        Emergency,
-        Treasury,
-        Parameter
-    }
-
-    struct Proposal {
-        uint256 id;
-        address proposer;
-        string title;
-        string descriptionHash; // e.g., IPFS
-        uint256 startTime;
-        uint256 endTime;
-        uint256 executionTime;
-        uint256 forVotes;
-        uint256 againstVotes;
-        uint256 abstainVotes;
-        ProposalState state;
-        address[] targets;
-        uint256[] values;
-        bytes[] calldatas;
-        bytes32 merkleRoot; // snapshot eligibility (optional)
-        ProposalType proposalType;
-        uint256 quorumRequired; // absolute token amount
-        uint256 timelockDuration;
-    }
-
-    struct Vote {
-        bool hasVoted;
-        uint8 support; // 0=against,1=for,2=abstain
-        uint256 votes;
-        uint256 convictionMultiplier; // percent (100 = 1x)
-        uint256 unlockTime;
-        string reason;
-    }
-
-    struct Delegation {
-        address delegate;
-        uint256 expiryTime;
-        bool isActive;
-        uint256 delegatedVotes;
-    }
-
-    struct TreasuryAllocation {
-        address token;
-        uint256 amount;
-        uint256 lastWithdrawal;
-        uint256 dailyLimit;
-        uint256 spentToday;
-    }
-
-    struct Stake {
-        uint256 amount;
-        uint256 startTime;
-        uint256 lockDuration;
-        uint256 multiplier; // percent (100 = 1x)
-    }
-
-    // State
-    mapping(address => Reputation) public reputations;
-    mapping(uint256 => Proposal) public proposals;
-    mapping(uint256 => mapping(address => Vote)) public votes;
-    mapping(address => Delegation) public delegations;
-    mapping(address => address[]) public delegators; // who delegated to an address
-    mapping(address => Stake) public stakes;
-    mapping(address => TreasuryAllocation) public treasuryAllocations;
-
-    uint256 public proposalCount;
-    uint256 public constant VOTING_PERIOD = 7 days;
-    uint256 public constant TIMELOCK_DELAY = 2 days;
-    uint256 public constant MIN_STAKE_DURATION = 30 days;
-    uint256 public constant MAX_CONVICTION_MULTIPLIER = 400; // percent (4x => 400)
-
-    IERC20 public immutable governanceToken;
-    uint256 public proposalThreshold; // absolute token amount required to propose
-    uint256 public quorumPercentage; // base quorum as percentage (e.g., 5 = 5%)
-
-    // Events
-    event ProposalCreated(uint256 indexed proposalId, address indexed proposer, ProposalType proposalType, uint256 startTime, uint256 endTime);
-    event VoteCast(address indexed voter, uint256 indexed proposalId, uint8 support, uint256 votes, uint256 convictionMultiplier, string reason);
-    event VoteDelegated(address indexed delegator, address indexed delegate, uint256 votes, uint256 expiryTime);
-    event ReputationUpdated(address indexed user, uint256 newScore, string reason);
-    event TokensStaked(address indexed staker, uint256 amount, uint256 lockDuration, uint256 multiplier);
-    event ProposalExecuted(uint256 indexed proposalId);
-    event ProposalQueued(uint256 indexed proposalId, uint256 executionTime);
-    event ProposalFinalized(uint256 indexed proposalId, ProposalState state);
-    event DelegationRemoved(address indexed delegator, address indexed delegate);
-    event StakeWithdrawn(address indexed staker, uint256 amount);
-
-    constructor(address _governanceToken, uint256 _proposalThreshold, uint256 _quorumPercentage) {
-        require(_governanceToken != address(0), "Invalid token");
-        require(_quorumPercentage <= 100, "Invalid quorum percentage");
-
-        governanceToken = IERC20(_governanceToken);
-        proposalThreshold = _proposalThreshold;
-        quorumPercentage = _quorumPercentage;
-
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(ADMIN_ROLE, msg.sender);
-        _grantRole(PROPOSER_ROLE, msg.sender);
-    }
-
-    /* ---------------------------------------------------------------------
-       Proposal creation
-       --------------------------------------------------------------------- */
-    function createProposal(
-        string memory title,
-        string memory descriptionHash,
-        address[] memory targets,
-        uint256[] memory values,
-        bytes[] memory calldatas,
-        ProposalType proposalType,
-        bytes32 merkleRoot
-    ) external whenNotPaused returns (uint256) {
-        require(targets.length == values.length && targets.length == calldatas.length, "Array length mismatch");
-        uint256 proposerPower = getVotingPower(msg.sender);
-        require(proposerPower >= proposalThreshold, "Insufficient voting power to propose");
-
-        proposalCount++;
-        uint256 id = proposalCount;
-
-        // calculate quorum required as absolute token amount (uses totalSupply)
-        uint256 baseQuorumPercent = getQuorumForType(proposalType); // returns percentage (0-100)
-        uint256 supply = governanceToken.totalSupply();
-        uint256 quorumAmount = (supply * baseQuorumPercent) / 100;
-
-        uint256 timelockDuration = getTimelockForType(proposalType);
-
-        proposals[id] = Proposal({
-            id: id,
-            proposer: msg.sender,
-            title: title,
-            descriptionHash: descriptionHash,
-            startTime: block.timestamp,
-            endTime: block.timestamp + VOTING_PERIOD,
-            executionTime: 0,
-            forVotes: 0,
-            againstVotes: 0,
-            abstainVotes: 0,
-            state: ProposalState.Active,
-            targets: targets,
-            values: values,
-            calldatas: calldatas,
-            merkleRoot: merkleRoot,
-            proposalType: proposalType,
-            quorumRequired: quorumAmount,
-            timelockDuration: timelockDuration
-        });
-
-        // update reputation
-        reputations[msg.sender].proposalsCreated++;
-        updateReputation(msg.sender, 10, "Proposal created");
-
-        emit ProposalCreated(id, msg.sender, proposalType, block.timestamp, block.timestamp + VOTING_PERIOD);
-        return id;
-    }
-
-    /* ---------------------------------------------------------------------
-       Voting
-       --------------------------------------------------------------------- */
-    function castVote(
-        uint256 proposalId,
-        uint8 support,
-        uint256 convictionWeeks,
-        string memory reason,
-        bytes32[] memory proof
-    ) external nonReentrant whenNotPaused {
-        Proposal storage proposal = proposals[proposalId];
-        require(proposal.state == ProposalState.Active, "Proposal not active");
-        require(block.timestamp <= proposal.endTime, "Voting period ended");
-        require(!votes[proposalId][msg.sender].hasVoted, "Already voted");
-        require(support <= 2, "Invalid support value");
-
-        if (proposal.merkleRoot != bytes32(0)) {
-            bytes32 leaf = keccak256(abi.encodePacked(msg.sender));
-            require(MerkleProof.verify(proof, proposal.merkleRoot, leaf), "Not eligible to vote (snapshot)");
-        }
-
-        uint256 votingPower = getVotingPower(msg.sender);
-        require(votingPower > 0, "No voting power");
-
-        // Quadratic: use sqrt of voting power as voting units
-        uint256 quadraticVotes = sqrt(votingPower);
-
-        uint256 convictionMultiplier = calculateConvictionMultiplier(convictionWeeks); // percent
-        uint256 finalVotes = (quadraticVotes * convictionMultiplier) / 100;
-
-        votes[proposalId][msg.sender] = Vote({
-            hasVoted: true,
-            support: support,
-            votes: finalVotes,
-            convictionMultiplier: convictionMultiplier,
-            unlockTime: block.timestamp + (convictionWeeks * 1 weeks),
-            reason: reason
-        });
-
-        if (support == 0) {
-            proposal.againstVotes += finalVotes;
-        } else if (support == 1) {
-            proposal.forVotes += finalVotes;
-        } else {
-            proposal.abstainVotes += finalVotes;
-        }
-
-        reputations[msg.sender].participationCount++;
-        updateReputation(msg.sender, 5, "Voted on proposal");
-
-        emit VoteCast(msg.sender, proposalId, support, finalVotes, convictionMultiplier, reason);
-    }
-
-    /* ---------------------------------------------------------------------
-       Delegation
-       --------------------------------------------------------------------- */
-    function delegateVotes(address delegate, uint256 durationDays) external whenNotPaused {
-        require(delegate != address(0), "Invalid delegate");
-        require(delegate != msg.sender, "Cannot self-delegate");
-        require(durationDays > 0 && durationDays <= 365, "Invalid duration");
-
-        uint256 votingPower = getVotingPower(msg.sender);
-        require(votingPower > 0, "No voting power to delegate");
-
-        if (delegations[msg.sender].isActive) {
-            _removeDelegation(msg.sender);
-        }
-
-        uint256 expiryTime = block.timestamp + (durationDays * 1 days);
-
-        delegations[msg.sender] = Delegation({
-            delegate: delegate,
-            expiryTime: expiryTime,
-            isActive: true,
-            delegatedVotes: votingPower
-        });
-
-        delegators[delegate].push(msg.sender);
-
-        emit VoteDelegated(msg.sender, delegate, votingPower, expiryTime);
-    }
-
-    function undelegate() external whenNotPaused {
-        require(delegations[msg.sender].isActive, "No active delegation");
-        address delegate = delegations[msg.sender].delegate;
-        _removeDelegation(msg.sender);
-        emit DelegationRemoved(msg.sender, delegate);
-    }
-
-    function _removeDelegation(address delegator) internal {
-        Delegation storage d = delegations[delegator];
-        if (!d.isActive) return;
-
-        address delegate = d.delegate;
-        d.isActive = false;
-        d.delegatedVotes = 0;
-
-        // remove delegator from delegators[delegate]
-        address[] storage dvs = delegators[delegate];
-        for (uint256 i = 0; i < dvs.length; i++) {
-            if (dvs[i] == delegator) {
-                dvs[i] = dvs[dvs.length - 1];
-                dvs.pop();
-                break;
-            }
-        }
-    }
-
-    /* ---------------------------------------------------------------------
-       Staking
-       --------------------------------------------------------------------- */
-    function stakeTokens(uint256 amount, uint256 lockDurationDays) external nonReentrant whenNotPaused {
-        require(amount > 0, "Amount must be > 0");
-        require(lockDurationDays >= 30 && lockDurationDays <= 1460, "Invalid lock duration");
-
-        IERC20 token = governanceToken;
-        token.safeTransferFrom(msg.sender, address(this), amount);
-
-        uint256 multiplier = calculateStakeMultiplier(lockDurationDays);
-
-        if (stakes[msg.sender].amount > 0) {
-            stakes[msg.sender].amount += amount;
-            // do not reset startTime to preserve earlier locks
-        } else {
-            stakes[msg.sender] = Stake({
-                amount: amount,
-                startTime: block.timestamp,
-                lockDuration: lockDurationDays * 1 days,
-                multiplier: multiplier
-            });
-        }
-
-        updateReputation(msg.sender, 20, "Staked tokens");
-        emit TokensStaked(msg.sender, amount, lockDurationDays, multiplier);
-    }
-
-    function withdrawStake() external nonReentrant whenNotPaused {
-        Stake storage s = stakes[msg.sender];
-        require(s.amount > 0, "No stake");
-        require(block.timestamp >= s.startTime + s.lockDuration, "Stake locked");
-
-        uint256 amount = s.amount;
-        s.amount = 0;
-        s.startTime = 0;
-        s.lockDuration = 0;
-        s.multiplier = 0;
-
-        governanceToken.safeTransfer(msg.sender, amount);
-        emit StakeWithdrawn(msg.sender, amount);
-    }
-
-    /* ---------------------------------------------------------------------
-       Finalization / queue / execute
-       --------------------------------------------------------------------- */
-    function finalizeProposal(uint256 proposalId) public whenNotPaused {
-        Proposal storage proposal = proposals[proposalId];
-        require(proposal.state == ProposalState.Active, "Not active");
-        require(block.timestamp > proposal.endTime, "Voting still in progress");
-
-        uint256 totalVotes = proposal.forVotes + proposal.againstVotes + proposal.abstainVotes;
-
-        // Determine succeeded or defeated based on quorum and majority
-        if (totalVotes < proposal.quorumRequired) {
-            proposal.state = ProposalState.Defeated;
-        } else if (proposal.forVotes > proposal.againstVotes) {
-            proposal.state = ProposalState.Succeeded;
-        } else {
-            proposal.state = ProposalState.Defeated;
-        }
-
-        emit ProposalFinalized(proposalId, proposal.state);
-    }
-
-    function queueProposal(uint256 proposalId) external whenNotPaused {
-        Proposal storage proposal = proposals[proposalId];
-        require(proposal.state == ProposalState.Succeeded, "Proposal not succeeded");
-        proposal.state = ProposalState.Queued;
-        proposal.executionTime = block.timestamp + proposal.timelockDuration;
-        emit ProposalQueued(proposalId, proposal.executionTime);
-    }
-
-    function cancelProposal(uint256 proposalId) external whenNotPaused onlyRole(ADMIN_ROLE) {
-        Proposal storage proposal = proposals[proposalId];
-        require(proposal.state == ProposalState.Active || proposal.state == ProposalState.Succeeded, "Cannot cancel");
-        proposal.state = ProposalState.Canceled;
-    }
-
-    function executeProposal(uint256 proposalId) external nonReentrant whenNotPaused {
-        Proposal storage proposal = proposals[proposalId];
-        require(proposal.state == ProposalState.Queued, "Proposal not queued");
-        require(block.timestamp >= proposal.executionTime, "Timelock not expired");
-
-        proposal.state = ProposalState.Executed;
-
-        for (uint256 i = 0; i < proposal.targets.length; i++) {
-            (bool success, bytes memory returndata) = proposal.targets[i].call{value: proposal.values[i]}(proposal.calldatas[i]);
-            require(success, string(abi.encodePacked("Execution failed at index ", _toString(i))));
-            // optional: process returndata
-        }
-
-        updateReputation(proposal.proposer, 50, "Proposal executed");
-        emit ProposalExecuted(proposalId);
-    }
-
-    /* ---------------------------------------------------------------------
-       Views & helpers
-       --------------------------------------------------------------------- */
-    function getVotingPower(address account) public view returns (uint256) {
-        uint256 baseVotes = governanceToken.balanceOf(account);
-
-        // add staked with multiplier
-        Stake storage s = stakes[account];
-        if (s.amount > 0) {
-            baseVotes += (s.amount * s.multiplier) / 100;
-        }
-
-        // add active delegations to account
-        address[] memory myDelegators = delegators[account];
-        for (uint256 i = 0; i < myDelegators.length; i++) {
-            Delegation memory d = delegations[myDelegators[i]];
-            if (d.isActive && block.timestamp < d.expiryTime) {
-                baseVotes += d.delegatedVotes;
-            }
-        }
-
-        // reputation bonus (percent)
-        uint256 bonusPercent = getReputationBonus(account);
-        uint256 reputationBonus = (baseVotes * bonusPercent) / 100;
-        return baseVotes + reputationBonus;
-    }
-
-    function calculateConvictionMultiplier(uint256 weeks) public pure returns (uint256) {
-        if (weeks == 0) return 100;
-        if (weeks >= 52) return 400; // 4x = 400%
-        return 100 + (weeks * 6); // linear approx
-    }
-
-    function calculateStakeMultiplier(uint256 days) public pure returns (uint256) {
-        if (days < 30) return 100;
-        if (days >= 1460) return 300;
-        return 100 + ((days - 30) * 200) / 1430;
-    }
-
-    function updateReputation(address user, uint256 points, string memory reason) internal {
-        reputations[user].score += points;
-        reputations[user].lastUpdate = block.timestamp;
-        emit ReputationUpdated(user, reputations[user].score, reason);
-    }
-
-    function getReputationBonus(address account) public view returns (uint256) {
-        uint256 score = reputations[account].score;
-        if (score < 100) return 0;
-        if (score >= 1000) return 20;
-        return (score / 50);
-    }
-
-    function getQuorumForType(ProposalType proposalType) public view returns (uint256) {
-        if (proposalType == ProposalType.Constitutional) return quorumPercentage + 20;
-        if (proposalType == ProposalType.Emergency) return quorumPercentage > 10 ? quorumPercentage - 10 : 0;
-        return quorumPercentage;
-    }
-
-    function getTimelockForType(ProposalType proposalType) public pure returns (uint256) {
-        if (proposalType == ProposalType.Constitutional) return 7 days;
-        if (proposalType == ProposalType.Emergency) return 1 days;
-        return TIMELOCK_DELAY;
-    }
-
-    // integer sqrt
-    function sqrt(uint256 x) internal pure returns (uint256) {
-        if (x == 0) return 0;
-        uint256 z = (x + 1) / 2;
-        uint256 y = x;
-        while (z < y) {
-            y = z;
-            z = (x / z + z) / 2;
-        }
-        return y;
-    }
-
-    /* ---------------------------------------------------------------------
-       Utility & maintenance
-       --------------------------------------------------------------------- */
-    function getNetworkInfo() external view returns (uint256, uint256) {
-        return (proposalCount, governanceToken.totalSupply());
-    }
-
-    function exportState(address account) external view returns (uint256, uint256, bool) {
-        return (reputations[account].score, stakes[account].amount, delegations[account].isActive);
-    }
-
-    // helper to convert uint to string for error messages
-    function _toString(uint256 value) internal pure returns (string memory) {
-        // from OpenZeppelin Strings.toString but copied minimal impl to avoid additional import
-        if (value == 0) {
-            return "0";
-        }
-        uint256 temp = value;
-        uint256 digits;
-        while (temp != 0) {
-            digits++;
-            temp /= 10;
-        }
-        bytes memory buffer = new bytes(digits);
-        while (value != 0) {
-            digits -= 1;
-            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
-            value /= 10;
-        }
-        return string(buffer);
-    }
-
-    /* ---------------------------------------------------------------------
-       Admin controls
-       --------------------------------------------------------------------- */
-    function pause() external onlyRole(ADMIN_ROLE) {
-        _pause();
-    }
-
-    function unpause() external onlyRole(ADMIN_ROLE) {
-        _unpause();
-    }
-
-    receive() external payable {}
+{
+  "name": "decentralized-autonomous-organization-dao-quadratic-voting-delegation",
+  "displayName": "DAO with Quadratic Voting & Delegation",
+  "version": "1.0.0",
+  "description": "A full-stack Decentralized Autonomous Organization (DAO) project implementing quadratic voting with delegation, on-chain governance, proposal lifecycle, and role-based access.",
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "" 
+  },
+  "keywords": [
+    "dao",
+    "quadratic-voting",
+    "delegation",
+    "governance",
+    "ethereum",
+    "solidity",
+    "hardhat",
+    "web3"
+  ],
+  "techStack": {
+    "blockchain": ["Ethereum / EVM-compatible chains"],
+    "smartContracts": ["Solidity (>=0.8.0)"],
+    "devTools": ["Hardhat", "ethers.js", "TypeChain"],
+    "backend": ["Node.js", "Express (optional)", "The Graph (optional)"],
+    "frontend": ["React", "Next.js (optional)", "wagmi/web3modal"],
+    "testing": ["Mocha", "Chai", "Waffle"],
+    "deployment": ["Infura/Alchemy", "Hardhat Network", "Foundry (optional)"],
+    "styles": ["Tailwind CSS"],
+    "CI_CD": ["GitHub Actions"]
+  },
+  "projectStructure": {
+    "contracts": "./contracts",
+    "scripts": "./scripts",
+    "deploy": "./deploy",
+    "tests": "./test",
+    "frontend": "./frontend",
+    "subgraph": "./subgraph (optional)",
+    "docs": "./docs"
+  },
+  "features": {
+    "onChainGovernance": true,
+    "quadraticVoting": true,
+    "delegation": true,
+    "proposalLifecycle": ["create", "vote", "succeed/execute", "cancel"],
+    "roleBasedAccess": true,
+    "timelocks": true,
+    "metaTransactions": false,
+    "voteSnapshotting": true
+  },
+  "contractsConfig": {
+    "solidityVersion": "0.8.19",
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "gasLimit": "auto"
+  },
+  "scripts": {
+    "clean": "rm -rf cache node_modules .openzeppelin build dist",
+    "install": "npm install",
+    "lint": "eslint './**/*.{js,ts,tsx}' --fix",
+    "format": "prettier --write './**/*.{js,ts,sol,json,md}'",
+    "compile": "hardhat compile",
+    "test": "hardhat test --network hardhat",
+    "coverage": "hardhat coverage",
+    "deploy:local": "hardhat run --network localhost deploy/deploy.js",
+    "deploy:rinkeby": "hardhat run --network rinkeby deploy/deploy.js",
+    "gas-report": "hardhat test --gas",
+    "start:frontend": "cd frontend && npm run dev",
+    "build:frontend": "cd frontend && npm run build",
+    "start": "npm run compile && npm run start:frontend"
+  },
+  "dependencies": {
+    "ethers": "^6.0.0",
+    "dotenv": "^16.0.0",
+    "merkletreejs": "^0.2.31",
+    "wagmi": "^1.0.0",
+    "viem": "^1.0.0"
+  },
+  "devDependencies": {
+    "hardhat": "^2.12.0",
+    "@nomicfoundation/hardhat-toolbox": "^3.0.0",
+    "chai": "^4.3.0",
+    "mocha": "^10.0.0",
+    "eslint": "^8.0.0",
+    "prettier": "^2.8.0",
+    "solidity-coverage": "^0.8.0",
+    "typechain": "^8.0.0",
+    "@typechain/ethers-v6": "^8.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "deploymentGuidelines": {
+    "envVars": [
+      "PRIVATE_KEY",
+      "RPC_URL",
+      "ALCHEMY_KEY",
+      "ETHERSCAN_API_KEY"
+    ],
+    "recommendedNetworks": ["localhost", "goerli", "sepolia", "polygon-mumbai"],
+    "securityChecks": [
+      "run unit + integration tests",
+      "run solidity-coverage",
+      "run slither (optional)",
+      "confirm admin/key-holder addresses before deploy"
+    ]
+  },
+  "governanceParameters": {
+    "votingPeriodBlocks": 46000,
+    "votingDelayBlocks": 1,
+    "proposalThreshold": 1000,
+    "quorumNumerator": 4,
+    "quorumDenominator": 100
+  },
+  "quadraticVotingConfig": {
+    "walletBalanceToVotingPower": "1 token = 1 voting unit (convert as needed)",
+    "costFunction": "votes_cost = votes^2 (quadratic cost)",
+    "maxVotesPerProposal": null,
+    "delegationAllowed": true,
+    "delegationTransferable": false
+  },
+  "securityNotes": "This project contains on-chain governance code. Audit thoroughly before mainnet deployment. Use multi-sig for admin keys and timelocks for critical actions.",
+  "howToContribute": [
+    "Fork the repository",
+    "Create feature branches",
+    "Add tests for new functionality",
+    "Open pull requests with clear descriptions"
+  ],
+  "templates": {
+    "issueTemplate": "docs/.github/ISSUE_TEMPLATE.md",
+    "prTemplate": "docs/.github/PULL_REQUEST_TEMPLATE.md",
+    "codeOfConduct": "docs/CODE_OF_CONDUCT.md"
+  }
 }
