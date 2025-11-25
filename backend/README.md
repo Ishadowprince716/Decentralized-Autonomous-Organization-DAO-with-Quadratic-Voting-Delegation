@@ -100,6 +100,40 @@ socket.on('stake:added', data => {});
 socket.on('member:added', data => {});
 ```
 
+## API Testing with Postman
+
+A Postman collection is included for testing the Avatar API endpoints.
+
+### Import Collection
+
+1. Open Postman
+2. Click **Import** > **File**
+3. Select `DAO-Avatar-API.postman_collection.json`
+
+### Available Requests
+
+**Authentication:**
+- Register User - Create new account
+- Login - Get JWT token
+
+**Avatar Management:**
+- Upload Avatar - POST with multipart form
+- Get Avatar - Retrieve avatar URL
+- Delete Avatar - Remove avatar
+
+**Error Scenarios:**
+- Upload Without Auth
+- Upload Invalid File Type
+- Get Non-existent Avatar
+
+### Variables
+
+Update collection variables before testing:
+- `baseUrl` - Your API endpoint (default: `http://localhost:4000`)
+- `jwt` - Auto-populated after login
+- `ownerId` - Auto-populated after register/login
+
+
 ## Project Structure
 
 ```
