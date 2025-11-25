@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "" 
+    "url": ""
   },
   "keywords": [
     "dao",
@@ -19,117 +19,61 @@
     "hardhat",
     "web3"
   ],
-  "techStack": {
-    "blockchain": ["Ethereum / EVM-compatible chains"],
-    "smartContracts": ["Solidity (>=0.8.0)"],
-    "devTools": ["Hardhat", "ethers.js", "TypeChain"],
-    "backend": ["Node.js", "Express (optional)", "The Graph (optional)"],
-    "frontend": ["React", "Next.js (optional)", "wagmi/web3modal"],
-    "testing": ["Mocha", "Chai", "Waffle"],
-    "deployment": ["Infura/Alchemy", "Hardhat Network", "Foundry (optional)"],
-    "styles": ["Tailwind CSS"],
-    "CI_CD": ["GitHub Actions"]
-  },
-  "projectStructure": {
-    "contracts": "./contracts",
-    "scripts": "./scripts",
-    "deploy": "./deploy",
-    "tests": "./test",
-    "frontend": "./frontend",
-    "subgraph": "./subgraph (optional)",
-    "docs": "./docs"
-  },
-  "features": {
-    "onChainGovernance": true,
-    "quadraticVoting": true,
-    "delegation": true,
-    "proposalLifecycle": ["create", "vote", "succeed/execute", "cancel"],
-    "roleBasedAccess": true,
-    "timelocks": true,
-    "metaTransactions": false,
-    "voteSnapshotting": true
-  },
-  "contractsConfig": {
-    "solidityVersion": "0.8.19",
-    "optimizer": {
-      "enabled": true,
-      "runs": 200
-    },
-    "gasLimit": "auto"
-  },
   "scripts": {
-    "clean": "rm -rf cache node_modules .openzeppelin build dist",
+    "clean": "hardhat clean && rm -rf node_modules package-lock.json",
     "install": "npm install",
     "lint": "eslint './**/*.{js,ts,tsx}' --fix",
+    "lint:sol": "solhint 'contracts/**/*.sol'",
     "format": "prettier --write './**/*.{js,ts,sol,json,md}'",
     "compile": "hardhat compile",
     "test": "hardhat test --network hardhat",
-    "coverage": "hardhat coverage",
-    "deploy:local": "hardhat run --network localhost deploy/deploy.js",
-    "deploy:rinkeby": "hardhat run --network rinkeby deploy/deploy.js",
-    "gas-report": "hardhat test --gas",
+    "test:coverage": "hardhat coverage",
+    "test:gas": "REPORT_GAS=true hardhat test",
+    "deploy:local": "hardhat run scripts/deploy.js --network localhost",
+    "deploy:sepolia": "hardhat run scripts/deploy.js --network sepolia",
+    "deploy:polygon": "hardhat run scripts/deploy.js --network polygon",
+    "node": "hardhat node",
+    "verify": "hardhat verify",
+    "size": "hardhat size-contracts",
+    "accounts": "hardhat accounts",
     "start:frontend": "cd frontend && npm run dev",
     "build:frontend": "cd frontend && npm run build",
     "start": "npm run compile && npm run start:frontend"
   },
   "dependencies": {
-    "ethers": "^6.0.0",
-    "dotenv": "^16.0.0",
-    "merkletreejs": "^0.2.31",
-    "wagmi": "^1.0.0",
-    "viem": "^1.0.0"
+    "@openzeppelin/contracts": "^5.0.1",
+    "ethers": "^6.9.0",
+    "dotenv": "^16.3.1",
+    "merkletreejs": "^0.3.11",
+    "wagmi": "^1.4.12",
+    "viem": "^1.20.0"
   },
   "devDependencies": {
-    "hardhat": "^2.12.0",
-    "@nomicfoundation/hardhat-toolbox": "^3.0.0",
-    "chai": "^4.3.0",
-    "mocha": "^10.0.0",
-    "eslint": "^8.0.0",
-    "prettier": "^2.8.0",
-    "solidity-coverage": "^0.8.0",
-    "typechain": "^8.0.0",
-    "@typechain/ethers-v6": "^8.0.0",
-    "@types/node": "^20.0.0"
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.3",
+    "@nomicfoundation/hardhat-ethers": "^3.0.5",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.10",
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@nomicfoundation/hardhat-verify": "^2.0.3",
+    "@typechain/ethers-v6": "^0.5.1",
+    "@typechain/hardhat": "^9.1.0",
+    "@types/node": "^20.10.6",
+    "chai": "^4.3.10",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.1.2",
+    "hardhat": "^2.19.4",
+    "hardhat-contract-sizer": "^2.10.0",
+    "hardhat-deploy": "^0.11.45",
+    "hardhat-gas-reporter": "^1.0.9",
+    "mocha": "^10.2.0",
+    "prettier": "^3.1.1",
+    "prettier-plugin-solidity": "^1.3.1",
+    "solhint": "^4.1.0",
+    "solidity-coverage": "^0.8.5",
+    "typechain": "^8.3.2"
   },
-  "deploymentGuidelines": {
-    "envVars": [
-      "PRIVATE_KEY",
-      "RPC_URL",
-      "ALCHEMY_KEY",
-      "ETHERSCAN_API_KEY"
-    ],
-    "recommendedNetworks": ["localhost", "goerli", "sepolia", "polygon-mumbai"],
-    "securityChecks": [
-      "run unit + integration tests",
-      "run solidity-coverage",
-      "run slither (optional)",
-      "confirm admin/key-holder addresses before deploy"
-    ]
-  },
-  "governanceParameters": {
-    "votingPeriodBlocks": 46000,
-    "votingDelayBlocks": 1,
-    "proposalThreshold": 1000,
-    "quorumNumerator": 4,
-    "quorumDenominator": 100
-  },
-  "quadraticVotingConfig": {
-    "walletBalanceToVotingPower": "1 token = 1 voting unit (convert as needed)",
-    "costFunction": "votes_cost = votes^2 (quadratic cost)",
-    "maxVotesPerProposal": null,
-    "delegationAllowed": true,
-    "delegationTransferable": false
-  },
-  "securityNotes": "This project contains on-chain governance code. Audit thoroughly before mainnet deployment. Use multi-sig for admin keys and timelocks for critical actions.",
-  "howToContribute": [
-    "Fork the repository",
-    "Create feature branches",
-    "Add tests for new functionality",
-    "Open pull requests with clear descriptions"
-  ],
-  "templates": {
-    "issueTemplate": "docs/.github/ISSUE_TEMPLATE.md",
-    "prTemplate": "docs/.github/PULL_REQUEST_TEMPLATE.md",
-    "codeOfConduct": "docs/CODE_OF_CONDUCT.md"
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
   }
 }
