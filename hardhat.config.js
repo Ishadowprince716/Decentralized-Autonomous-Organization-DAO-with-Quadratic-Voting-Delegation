@@ -1,71 +1,35 @@
-// hardhat.config.js
+// hardhat.config.js - Updated for ethers v6
 require("@nomicfoundation/hardhat-toolbox");
 require("dotenv").config();
 require("hardhat-contract-sizer");
 require("hardhat-gas-reporter");
 require("solidity-coverage");
 require("hardhat-deploy");
-require("@nomiclabs/hardhat-etherscan"); // For contract verification
-require("hardhat-tracer"); // Optional advanced debugging
 
-// ========== Environment / safety ==========
-// IMPORTANT: Never commit real private keys or mnemonics to source control.
-// Use a secrets manager or environment variables kept out of git.
-const PRIVATE_KEY = process.env.PRIVATE_KEY && process.env.PRIVATE_KEY.length > 2
-  ? process.env.PRIVATE_KEY
-  : null;
+// Environment variables
+const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
+const MNEMONIC = process.env.MNEMONIC || "test test test test test test test test test test test junk";
 
-const MNEMONIC = process.env.MNEMONIC && process.env.MNEMONIC.length > 2
-  ? process.env.MNEMONIC
-  : "test test test test test test test test test test test junk";
-
-// RPC endpoints (fallback to placeholders where appropriate)
+// RPC endpoints
 const SEPOLIA_RPC_URL = process.env.SEPOLIA_RPC_URL || "";
 const MAINNET_RPC_URL = process.env.MAINNET_RPC_URL || "";
-const GOERLI_RPC_URL = process.env.GOERLI_RPC_URL || "";
 const POLYGON_RPC_URL = process.env.POLYGON_RPC_URL || "";
 const POLYGON_MUMBAI_RPC_URL = process.env.POLYGON_MUMBAI_RPC_URL || "";
-const ARBITRUM_RPC_URL = process.env.ARBITRUM_RPC_URL || "";
-const ARBITRUM_GOERLI_RPC_URL = process.env.ARBITRUM_GOERLI_RPC_URL || "";
-const OPTIMISM_RPC_URL = process.env.OPTIMISM_RPC_URL || "";
-const OPTIMISM_GOERLI_RPC_URL = process.env.OPTIMISM_GOERLI_RPC_URL || "";
-const BSC_RPC_URL = process.env.BSC_RPC_URL || "";
-const BSC_TESTNET_RPC_URL = process.env.BSC_TESTNET_RPC_URL || "";
-const AVALANCHE_RPC_URL = process.env.AVALANCHE_RPC_URL || "";
-const AVALANCHE_FUJI_RPC_URL = process.env.AVALANCHE_FUJI_RPC_URL || "";
-const FANTOM_RPC_URL = process.env.FANTOM_RPC_URL || "";
-const FANTOM_TESTNET_RPC_URL = process.env.FANTOM_TESTNET_RPC_URL || "";
-const CORE_TESTNET_RPC_URL = process.env.CORE_TESTNET_RPC_URL || "";
-const BASE_RPC_URL = process.env.BASE_RPC_URL || "";
-const BASE_GOERLI_RPC_URL = process.env.BASE_GOERLI_RPC_URL || "";
 
-// API keys for verification
+// API keys
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "";
 const POLYGONSCAN_API_KEY = process.env.POLYGONSCAN_API_KEY || "";
-const ARBISCAN_API_KEY = process.env.ARBISCAN_API_KEY || "";
-const OPTIMISTIC_ETHERSCAN_API_KEY = process.env.OPTIMISTIC_ETHERSCAN_API_KEY || "";
-const BSCSCAN_API_KEY = process.env.BSCSCAN_API_KEY || "";
-const SNOWTRACE_API_KEY = process.env.SNOWTRACE_API_KEY || "";
-const FTMSCAN_API_KEY = process.env.FTMSCAN_API_KEY || "";
-const BASESCAN_API_KEY = process.env.BASESCAN_API_KEY || "";
-
-// Gas reporter and other toggles
 const COINMARKETCAP_API_KEY = process.env.COINMARKETCAP_API_KEY || "";
+
+// Toggles
 const REPORT_GAS = process.env.REPORT_GAS === "true";
 const FORKING_ENABLED = process.env.FORKING_ENABLED === "true";
 const FORKING_BLOCK_NUMBER = process.env.FORKING_BLOCK_NUMBER ? parseInt(process.env.FORKING_BLOCK_NUMBER) : undefined;
 
-// ========== Helper utilities ==========
-/**
- * Returns accounts configuration for Hardhat networks:
- * - If PRIVATE_KEY is set, returns an array with the private key (useful for remote networks)
- * - Otherwise returns mnemonic config (suitable for local dev and test networks)
- */
 function getAccountsConfig() {
-  if (PRIVATE_KEY) {
+  if (PRIVATE_KEY && PRIVATE_KEY.length > 2) {
     return [PRIVATE_KEY];
   }
-
   return {
     mnemonic: MNEMONIC,
     path: "m/44'/60'/0'/0",
@@ -74,35 +38,23 @@ function getAccountsConfig() {
   };
 }
 
-/**
- * Construct a network config object in a consistent way.
- * Accepts either a string or object for extra options.
- */
 function getNetworkConfig(rpcUrl, chainId, opts = {}) {
   if (!rpcUrl) {
-    // Do not crash — create a minimal placeholder (but warn).
-    console.warn(`[hardhat] RPC URL for chainId ${chainId} appears empty; set env var to interact with this network.`);
+    console.warn(`[hardhat] RPC URL for chainId ${chainId} is empty`);
   }
-
-  const base = {
+  return {
     url: rpcUrl || "http://localhost:8545",
     chainId,
     accounts: getAccountsConfig(),
-    gasPrice: opts.gasPrice || undefined,
+    gasPrice: opts.gasPrice,
     timeout: opts.timeout || 40000,
     ...opts.extra,
   };
-
-  // allow explicit gas override for certain testnets if provided
-  if (opts.gas) base.gas = opts.gas;
-  return base;
 }
 
-// ========== Hardhat configuration ==========
-/** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   defaultNetwork: "hardhat",
-
+  
   solidity: {
     compilers: [
       {
@@ -117,12 +69,6 @@ module.exports = {
       },
       {
         version: "0.8.19",
-        settings: {
-          optimizer: { enabled: true, runs: 200 },
-        },
-      },
-      {
-        version: "0.7.6",
         settings: {
           optimizer: { enabled: true, runs: 200 },
         },
@@ -151,73 +97,24 @@ module.exports = {
         },
       } : {}),
     },
-
     localhost: {
       url: "http://127.0.0.1:8545",
       chainId: 31337,
       timeout: 60000,
     },
-
     mainnet: getNetworkConfig(MAINNET_RPC_URL, 1, { extra: { gasMultiplier: 1.2 } }),
     sepolia: getNetworkConfig(SEPOLIA_RPC_URL, 11155111),
-    goerli: getNetworkConfig(GOERLI_RPC_URL, 5),
-
     polygon: getNetworkConfig(POLYGON_RPC_URL, 137, { extra: { gasMultiplier: 1.2 } }),
     polygonMumbai: getNetworkConfig(POLYGON_MUMBAI_RPC_URL, 80001),
-
-    arbitrum: getNetworkConfig(ARBITRUM_RPC_URL, 42161),
-    arbitrumGoerli: getNetworkConfig(ARBITRUM_GOERLI_RPC_URL, 421613),
-
-    optimism: getNetworkConfig(OPTIMISM_RPC_URL, 10),
-    optimismGoerli: getNetworkConfig(OPTIMISM_GOERLI_RPC_URL, 420),
-
-    bsc: getNetworkConfig(BSC_RPC_URL, 56),
-    bscTestnet: getNetworkConfig(BSC_TESTNET_RPC_URL, 97),
-
-    avalanche: getNetworkConfig(AVALANCHE_RPC_URL, 43114),
-    avalancheFuji: getNetworkConfig(AVALANCHE_FUJI_RPC_URL, 43113),
-
-    fantom: getNetworkConfig(FANTOM_RPC_URL, 250),
-    fantomTestnet: getNetworkConfig(FANTOM_TESTNET_RPC_URL, 4002),
-
-    base: getNetworkConfig(BASE_RPC_URL, 8453),
-    baseGoerli: getNetworkConfig(BASE_GOERLI_RPC_URL, 84531),
-
-    core_testnet2: getNetworkConfig(CORE_TESTNET_RPC_URL, 1115, { extra: { gasPrice: 20000000000 } }),
   },
 
   etherscan: {
     apiKey: {
       mainnet: ETHERSCAN_API_KEY,
       sepolia: ETHERSCAN_API_KEY,
-      goerli: ETHERSCAN_API_KEY,
       polygon: POLYGONSCAN_API_KEY,
       polygonMumbai: POLYGONSCAN_API_KEY,
-      arbitrumOne: ARBISCAN_API_KEY,
-      arbitrumGoerli: ARBISCAN_API_KEY,
-      optimisticEthereum: OPTIMISTIC_ETHERSCAN_API_KEY,
-      optimisticGoerli: OPTIMISTIC_ETHERSCAN_API_KEY,
-      bsc: BSCSCAN_API_KEY,
-      bscTestnet: BSCSCAN_API_KEY,
-      avalanche: SNOWTRACE_API_KEY,
-      avalancheFujiTestnet: SNOWTRACE_API_KEY,
-      opera: FTMSCAN_API_KEY,
-      ftmTestnet: FTMSCAN_API_KEY,
-      base: BASESCAN_API_KEY,
-      baseGoerli: BASESCAN_API_KEY,
     },
-    customChains: [
-      {
-        network: "base",
-        chainId: 8453,
-        urls: { apiURL: "https://api.basescan.org/api", browserURL: "https://basescan.org" },
-      },
-      {
-        network: "baseGoerli",
-        chainId: 84531,
-        urls: { apiURL: "https://api-goerli.basescan.org/api", browserURL: "https://goerli.basescan.org" },
-      },
-    ],
   },
 
   namedAccounts: {
@@ -225,7 +122,6 @@ module.exports = {
     user1: { default: 1 },
     user2: { default: 2 },
     treasury: { default: 3 },
-    feeCollector: { default: 4 },
   },
 
   paths: {
@@ -235,24 +131,18 @@ module.exports = {
     artifacts: "./artifacts",
     deploy: "./deploy",
     deployments: "./deployments",
-    imports: "./imports",
   },
 
   mocha: {
     timeout: 200000,
     bail: false,
     parallel: false,
-    // only require hardhat/register if you actually need it for tests; leaving commented for safety
-    // require: ["hardhat/register"],
   },
 
   contractSizer: {
     runOnCompile: true,
     strict: true,
-    only: [],
-    except: [],
     alphaSort: true,
-    disambiguatePaths: false,
   },
 
   gasReporter: {
@@ -260,185 +150,53 @@ module.exports = {
     currency: "USD",
     coinmarketcap: COINMARKETCAP_API_KEY || undefined,
     token: "ETH",
-    // If coinmarketcap is not provided, disabling price lookup avoids noisy errors
-    gasPriceApi: "https://api.etherscan.io/api?module=proxy&action=eth_gasPrice",
     outputFile: "gas-report.txt",
     noColors: true,
     showTimeSpent: true,
     showMethodSig: true,
-    excludeContracts: ["Migrations", "Mock"],
+    excludeContracts: ["Mock"],
     src: "./contracts",
-    L1: "ethereum",
-    L2: "optimism",
-    onlyCalledMethods: true,
-  },
-
-  coverage: {
-    skipFiles: ["test/", "mock/", "interfaces/"],
-    measureStatementCoverage: true,
-    measureFunctionCoverage: true,
-    measureBranchCoverage: true,
-    measureLineCoverage: true,
-  },
-
-  external: {
-    contracts: [{ artifacts: "node_modules/@openzeppelin/contracts/build/contracts" }],
-    deployments: {
-      mainnet: ["deployments/mainnet"],
-      sepolia: ["deployments/sepolia"],
-    },
   },
 
   typechain: {
     outDir: "typechain-types",
-    target: "ethers-v5",
+    target: "ethers-v6",
     alwaysGenerateOverloads: false,
-    externalArtifacts: ["externalArtifacts/*.json"],
-    dontOverrideCompile: false,
-  },
-
-  deploymentMetadata: { save: true, saveDeployment: true },
-
-  warnings: {
-    "*": {
-      "unused-param": "warn",
-      "unused-var": "warn",
-      default: "error",
-    },
-  },
-
-  defender: {
-    apiKey: process.env.DEFENDER_API_KEY || "",
-    apiSecret: process.env.DEFENDER_API_SECRET || "",
   },
 };
 
-// ========== Custom tasks (improved, safe) ==========
+// Custom tasks with ethers v6 compatibility
 const { task } = require("hardhat/config");
 
-// accounts
-task("accounts", "Prints the list of accounts with balances")
-  .setAction(async (taskArgs, hre) => {
-    const accounts = await hre.ethers.getSigners();
-    console.log("\nAccounts:");
-    console.log("========================================");
-    for (const account of accounts) {
-      const balance = await account.getBalance();
-      console.log(`${account.address}: ${hre.ethers.utils.formatEther(balance)} ETH`);
-    }
-    console.log("========================================\n");
-  });
+task("accounts", "Prints the list of accounts with balances").setAction(async (taskArgs, hre) => {
+  const accounts = await hre.ethers.getSigners();
+  console.log("\nAccounts:");
+  console.log("========================================");
+  for (const account of accounts) {
+    const balance = await hre.ethers.provider.getBalance(account.address);
+    console.log(`${account.address}: ${hre.ethers.formatEther(balance)} ETH`);
+  }
+  console.log("========================================\n");
+});
 
-// block-number
-task("block-number", "Prints the current block number")
-  .setAction(async (taskArgs, hre) => {
-    const blockNumber = await hre.ethers.provider.getBlockNumber();
-    console.log(`Current block number: ${blockNumber}`);
-  });
+task("block-number", "Prints the current block number").setAction(async (taskArgs, hre) => {
+  const blockNumber = await hre.ethers.provider.getBlockNumber();
+  console.log(`Current block number: ${blockNumber}`);
+});
 
-// network-info
-task("network-info", "Prints information about the current network")
-  .setAction(async (taskArgs, hre) => {
-    const network = await hre.ethers.provider.getNetwork();
-    const blockNumber = await hre.ethers.provider.getBlockNumber();
-    const gasPrice = await hre.ethers.provider.getGasPrice();
-    console.log("\nNetwork Information:");
-    console.log("========================================");
-    console.log(`Network Name: ${network.name}`);
-    console.log(`Chain ID: ${network.chainId}`);
-    console.log(`Block Number: ${blockNumber}`);
-    console.log(`Gas Price: ${hre.ethers.utils.formatUnits(gasPrice, "gwei")} gwei`);
-    console.log("========================================\n");
-  });
+task("network-info", "Prints network information").setAction(async (taskArgs, hre) => {
+  const network = await hre.ethers.provider.getNetwork();
+  const blockNumber = await hre.ethers.provider.getBlockNumber();
+  const feeData = await hre.ethers.provider.getFeeData();
+  console.log("\nNetwork Information:");
+  console.log("========================================");
+  console.log(`Network Name: ${network.name}");
+  console.log(`Chain ID: ${network.chainId}`);
+  console.log(`Block Number: ${blockNumber}`);
+  console.log(`Gas Price: ${hre.ethers.formatUnits(feeData.gasPrice || 0n, "gwei")} gwei`);
+  console.log("========================================\n");
+});
 
-// clean-all
-task("clean-all", "Cleans artifacts, cache, and deployments")
-  .setAction(async (taskArgs, hre) => {
-    await hre.run("clean");
-    console.log("Cleaned artifacts and cache");
-    const fs = require("fs");
-    const path = require("path");
-    const deploymentsPath = path.join(__dirname, "deployments");
-    if (fs.existsSync(deploymentsPath)) {
-      fs.rmSync(deploymentsPath, { recursive: true, force: true });
-      console.log("Cleaned deployments");
-    }
-    console.log("All clean tasks completed");
-  });
-
-// deploy-all (delegates to hardhat-deploy)
-task("deploy-all", "Deploy all contracts to the specified network")
-  .setAction(async (taskArgs, hre) => {
-    console.log(`\nDeploying to ${hre.network.name}...`);
-    await hre.run("deploy");
-    console.log("Deployment completed\n");
-  });
-
-// verify-all (robust: catches errors)
-task("verify-all", "Verify all deployed contracts")
-  .setAction(async (taskArgs, hre) => {
-    const deployments = await hre.deployments.all();
-    console.log("\nVerifying contracts...");
-    console.log("========================================");
-    for (const [name, deployment] of Object.entries(deployments)) {
-      try {
-        console.log(`Verifying ${name}...`);
-        await hre.run("verify:verify", {
-          address: deployment.address,
-          constructorArguments: deployment.args || [],
-        });
-        console.log(`✓ ${name} verified`);
-      } catch (error) {
-        console.log(`✗ ${name} verification failed: ${error && error.message ? error.message : error}`);
-      }
-    }
-    console.log("========================================\n");
-  });
-
-// export-addresses
-task("export-addresses", "Export deployed contract addresses to JSON")
-  .setAction(async (taskArgs, hre) => {
-    const deployments = await hre.deployments.all();
-    const fs = require("fs");
-    const path = require("path");
-    const addresses = {};
-    for (const [name, deployment] of Object.entries(deployments)) {
-      addresses[name] = deployment.address;
-    }
-    const outputPath = path.join(__dirname, "deployed-addresses.json");
-    fs.writeFileSync(outputPath, JSON.stringify(addresses, null, 2));
-    console.log(`Addresses exported to ${outputPath}`);
-  });
-
-// check-size
-task("check-size", "Check if contracts are within size limits")
-  .setAction(async (taskArgs, hre) => {
-    await hre.run("size-contracts");
-  });
-
-// deployment-report
-task("deployment-report", "Generate a comprehensive deployment report")
-  .setAction(async (taskArgs, hre) => {
-    const deployments = await hre.deployments.all();
-    console.log("\n╔════════════════════════════════════════════════════════════╗");
-    console.log("║            DEPLOYMENT REPORT                               ║");
-    console.log("╠════════════════════════════════════════════════════════════╣");
-    console.log(`║ Network: ${hre.network.name.padEnd(49)}║`);
-    console.log(`║ Total Contracts: ${Object.keys(deployments).length.toString().padEnd(43)}║`);
-    console.log("╠════════════════════════════════════════════════════════════╣");
-    for (const [name, deployment] of Object.entries(deployments)) {
-      console.log(`║ ${name.padEnd(58)}║`);
-      console.log(`║   Address: ${deployment.address.padEnd(47)}║`);
-      if (deployment.receipt) {
-        console.log(`║   Gas Used: ${deployment.receipt.gasUsed.toString().padEnd(46)}║`);
-      }
-      console.log("╠════════════════════════════════════════════════════════════╣");
-    }
-    console.log("╚════════════════════════════════════════════════════════════╝\n");
-  });
-
-// simple console summary on load
-console.log("\n✓ Hardhat configuration loaded successfully");
+console.log("\n✓ Hardhat configuration loaded (ethers v6)");
 console.log(`✓ Default network: ${module.exports.defaultNetwork}`);
-console.log(`✓ Gas reporting: ${REPORT_GAS ? "enabled" : "disabled"}`);
-console.log(`✓ Forking: ${FORKING_ENABLED ? "enabled" : "disabled"}\n`);
+console.log(`✓ Gas reporting: ${REPORT_GAS ? "enabled" : "disabled"}\n");
