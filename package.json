@@ -1,0 +1,79 @@
+{
+  "name": "decentralized-autonomous-organization-dao-quadratic-voting-delegation",
+  "displayName": "DAO with Quadratic Voting & Delegation",
+  "version": "1.0.0",
+  "description": "A full-stack Decentralized Autonomous Organization (DAO) project implementing quadratic voting with delegation, on-chain governance, proposal lifecycle, and role-based access.",
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "keywords": [
+    "dao",
+    "quadratic-voting",
+    "delegation",
+    "governance",
+    "ethereum",
+    "solidity",
+    "hardhat",
+    "web3"
+  ],
+  "scripts": {
+    "clean": "hardhat clean && rm -rf node_modules package-lock.json",
+    "install": "npm install",
+    "lint": "eslint './**/*.{js,ts,tsx}' --fix",
+    "lint:sol": "solhint 'contracts/**/*.sol'",
+    "format": "prettier --write './**/*.{js,ts,sol,json,md}'",
+    "compile": "hardhat compile",
+    "test": "hardhat test --network hardhat",
+    "test:coverage": "hardhat coverage",
+    "test:gas": "REPORT_GAS=true hardhat test",
+    "deploy:local": "hardhat run scripts/deploy.js --network localhost",
+    "deploy:sepolia": "hardhat run scripts/deploy.js --network sepolia",
+    "deploy:polygon": "hardhat run scripts/deploy.js --network polygon",
+    "node": "hardhat node",
+    "verify": "hardhat verify",
+    "size": "hardhat size-contracts",
+    "accounts": "hardhat accounts",
+    "start:frontend": "cd frontend && npm run dev",
+    "build:frontend": "cd frontend && npm run build",
+    "start": "npm run compile && npm run start:frontend"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.1",
+    "ethers": "^6.9.0",
+    "dotenv": "^16.3.1",
+    "merkletreejs": "^0.3.11",
+    "wagmi": "^1.4.12",
+    "viem": "^1.20.0"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.3",
+    "@nomicfoundation/hardhat-ethers": "^3.0.5",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.10",
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@nomicfoundation/hardhat-verify": "^2.0.3",
+    "@typechain/ethers-v6": "^0.5.1",
+    "@typechain/hardhat": "^9.1.0",
+    "@types/node": "^20.10.6",
+    "chai": "^4.3.10",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.1.2",
+    "hardhat": "^2.19.4",
+    "hardhat-contract-sizer": "^2.10.0",
+    "hardhat-deploy": "^0.11.45",
+    "hardhat-gas-reporter": "^1.0.9",
+    "mocha": "^10.2.0",
+    "prettier": "^3.1.1",
+    "prettier-plugin-solidity": "^1.3.1",
+    "solhint": "^4.1.0",
+    "solidity-coverage": "^0.8.5",
+    "typechain": "^8.3.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}

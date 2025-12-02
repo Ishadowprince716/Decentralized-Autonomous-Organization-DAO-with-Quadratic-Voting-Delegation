@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0"
+  />
+  <title>Quadratic Voting DAO Dashboard</title>
+
+  <!-- Basic SEO -->
+  <meta
+    name="description"
+    content="Decentralized Autonomous Organization with quadratic voting and delegation."
+  />
+
+  <!-- PWA support -->
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0f172a" />
+
+  <!-- Favicon (adjust path if you add a real icon) -->
+  <link rel="icon" type="image/png" href="/favicon.png" />
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <!-- App Shell -->
+  <div id="app" class="app-shell">
+    <!-- Header / Navbar -->
+    <header class="app-header">
+      <div class="app-header-left">
+        <h1 class="app-title">QuadraticDAO</h1>
+        <span class="app-subtitle">Quadratic Voting & Delegation</span>
+      </div>
+      <div class="app-header-right">
+        <select id="networkSelector" class="network-selector">
+          <option value="core-testnet">Core Testnet</option>
+          <option value="local-hardhat">Local Hardhat</option>
+        </select>
+
+        <button id="connectWalletButton" class="btn btn-primary">
+          Connect Wallet
+        </button>
+        <span id="walletAddressLabel" class="wallet-address-label hidden">
+          Not connected
+        </span>
+      </div>
+    </header>
+
+    <!-- Main layout -->
+    <main class="app-main">
+      <!-- Left column: member & proposal actions -->
+      <section class="panel panel-left">
+        <!-- DAO / Member status -->
+        <section class="card">
+          <h2 class="card-title">Member Status</h2>
+          <div id="memberStatus" class="member-status">
+            <p class="muted">Connect wallet to load member data.</p>
+          </div>
+
+          <div class="member-actions">
+            <button id="joinDaoButton" class="btn btn-secondary">
+              Join DAO
+            </button>
+            <button id="stakeTokensButton" class="btn btn-secondary">
+              Stake / Update Stake
+            </button>
+          </div>
+        </section>
+
+        <!-- Create proposal -->
+        <section class="card">
+          <h2 class="card-title">Create Proposal</h2>
+          <form id="createProposalForm" class="form">
+            <label class="form-label" for="proposalTitle">
+              Title
+            </label>
+            <input
+              id="proposalTitle"
+              name="title"
+              type="text"
+              class="form-input"
+              placeholder="Short proposal title"
+              required
+            />
+
+            <label class="form-label" for="proposalDescription">
+              Description
+            </label>
+            <textarea
+              id="proposalDescription"
+              name="description"
+              class="form-textarea"
+              rows="4"
+              placeholder="Detailed proposal description"
+              required
+            ></textarea>
+
+            <label class="form-label" for="proposalDeadline">
+              Voting Deadline (UTC)
+            </label>
+            <input
+              id="proposalDeadline"
+              name="deadline"
+              type="datetime-local"
+              class="form-input"
+              required
+            />
+
+            <button type="submit" class="btn btn-primary full-width">
+              Submit Proposal
+            </button>
+          </form>
+          <div id="createProposalErrors" class="form-errors"></div>
+        </section>
+
+        <!-- Delegation -->
+        <section class="card">
+          <h2 class="card-title">Delegate Voting Power</h2>
+          <form id="delegateForm" class="form">
+            <label class="form-label" for="delegateAddress">
+              Delegate to address
+            </label>
+            <input
+              id="delegateAddress"
+              name="delegateAddress"
+              type="text"
+              class="form-input"
+              placeholder="0x..."
+              required
+            />
+            <button type="submit" class="btn btn-secondary full-width">
+              Delegate
+            </button>
+          </form>
+          <div id="delegateErrors" class="form-errors"></div>
+        </section>
+      </section>
+
+      <!-- Right column: proposals & analytics -->
+      <section class="panel panel-right">
+        <!-- Active proposals -->
+        <section class="card">
+          <div class="card-header">
+            <h2 class="card-title">Active Proposals</h2>
+            <div class="card-actions">
+              <button id="refreshProposalsButton" class="btn btn-ghost">
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          <div id="proposalsList" class="proposals-list">
+            <p class="muted">No proposals loaded yet.</p>
+          </div>
+        </section>
+
+        <!-- Voting actions (modal-style inline section) -->
+        <section id="proposalDetailsPanel" class="card hidden">
+          <div class="card-header">
+            <h2 class="card-title" id="proposalDetailsTitle">
+              Proposal Details
+            </h2>
+            <button
+              id="closeProposalDetailsButton"
+              class="btn-icon"
+              aria-label="Close details"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div id="proposalDetailsBody" class="proposal-details-body">
+            <!-- Filled dynamically by ui-manager.js -->
+          </div>
+
+          <form id="voteForm" class="form">
+            <label class="form-label" for="voteChoice">
+              Your Vote
+            </label>
+            <select id="voteChoice" name="voteChoice" class="form-input">
+              <option value="1">For</option>
+              <option value="0">Against</option>
+              <option value="2">Abstain</option>
+            </select>
+
+            <label class="form-label" for="voteWeight">
+              Voting Power to Spend (Quadratic)
+            </label>
+            <input
+              id="voteWeight"
+              name="voteWeight"
+              type="number"
+              class="form-input"
+              min="1"
+              step="1"
+              placeholder="e.g. 4 (costs 16 tokens)"
+              required
+            />
+
+            <button type="submit" class="btn btn-primary full-width">
+              Cast Vote
+            </button>
+          </form>
+
+          <div id="voteErrors" class="form-errors"></div>
+        </section>
+
+        <!-- Charts / analytics -->
+        <section class="card">
+          <div class="card-header">
+            <h2 class="card-title">Analytics</h2>
+            <div class="card-actions">
+              <button id="refreshAnalyticsButton" class="btn btn-ghost">
+                Refresh
+              </button>
+            </div>
+          </div>
+          <div id="chartsContainer" class="charts-container">
+            <!-- chart-manager.js will inject charts canvases/elements -->
+            <p class="muted">
+              Connect your wallet and load proposals to see participation and
+              voting analytics.
+            </p>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <!-- Global notifications / toasts -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Global loading overlay -->
+    <div id="globalLoadingOverlay" class="loading-overlay hidden">
+      <div class="loading-spinner"></div>
+      <p>Processing transaction…</p>
+    </div>
+  </div>
+
+  <!-- Scripts: order matters -->
+  <script src="./constants.js"></script>
+  <script src="./state-manager.js"></script>
+  <script src="./validators.js"></script>
+  <script src="./web3-manager.js"></script>
+  <script src="./contract-manager.js"></script>
+  <script src="./chart-manager.js"></script>
+  <script src="./ui-manager.js"></script>
+  <script src="./app.js"></script>
+
+  <!-- Register service worker if available -->
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker
+          .register("/sw.js")
+          .catch(function (err) {
+            console.warn("Service worker registration failed:", err);
+          });
+      });
+    }
+  </script>
+</body>
+</html>
